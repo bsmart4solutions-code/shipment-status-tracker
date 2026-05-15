@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shipment Status Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    .status-pending { background: #fef3c7; color: #92400e; }
+    .status-confirmed { background: #dbeafe; color: #1e40af; }
+    .status-shipped { background: #e0e7ff; color: #3730a3; }
+    .status-in_transit { background: #cffafe; color: #0e7490; }
+    .status-arrived { background: #d1fae5; color: #065f46; }
+    .status-cleared { background: #bbf7d0; color: #15803d; }
+    .status-delivered { background: #dcfce7; color: #166534; }
+    .status-cancelled { background: #fee2e2; color: #991b1b; }
+    .status-on_hold { background: #f3e8ff; color: #7e22ce; }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <div id="app" class="max-w-7xl mx-auto p-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-8">
+      <div>
+        <h1 class="text-3xl font-bold text-gray-800">🚢 Shipment Status Tracker</h1>
+        <p class="text-gray-500 mt-1">Real-time shipment monitoring</p>
+      </div>
+      <div class="flex gap-3">
+        <button onclick="exportCSV()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition">
+          <i class="fas fa-file-csv"></i> Export CSV
+        </button>
+        <button onclick="openAddModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition">
+          <i class="fas fa-plus"></i> New Shipment
+        </button>
+      </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div id="stats" class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8"></div>
+
+    <!-- Search & Filter -->
+    <div class="bg-white rounded-xl shadow-sm p-4 mb-6 flex flex-wrap gap-4 items-center">
+      <div class="flex-1 min-w-[200px]">
+        <input type="text" id="searchInput" placeholder="Search by shipment no. or customer..." 
+               class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" oninput="renderTable()">
+      </div>
+      <select id="statusFilter" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" onchange="renderTable()">
+        <option value="">All Status</option>
+      </select>
+      <select id="sortBy" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" onchange="renderTable()">
+        <option value="created_at-desc">Newest First</option>
+        <option value="created_at-asc">Oldest First</option>
+        <option value="shipment_no-asc">Shipment # A-Z</option>
+        <option value="eta-asc">ETA Earliest</option>
+      </select>
+      <button onclick="renderTable()" class="bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg transition">
+        <i class="fas fa-filter"></i>
+      </button>
+    </div>
+
+    <!-- Table -->
+    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead class="bg-gray-50 text-gray-600 text-sm uppercase">
+            <tr>
+              <th class="px-4 py-3 text-left">Shipment #</th>
+              <th class="px-4 py-3 text-left">Customer</th>
+              <th class="px-4 py-3 text-left">Route</th>
+              <th class="px-4 py-3 text-left">Status</th>
+              <th class="px-4 py-3 text-left">ETA</th>
+              <th class="px-4 py-3 text-left">Updated</th>
+              <th class="px-4 py-3 text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody" class="divide-y"></tbody>
+        </table>
+      </div>
+      <div id="emptyState" class="hidden p-12 text-center text-gray-400">
+        <i class="fas fa-ship text-5xl mb-4"></i>
+        <p class="text-lg">No shipments found</p>
+        <p class="text-sm mt-1">Add your first shipment to get started</p>
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    <div id="pagination" class="flex justify-between items-center mt-4 text-sm text-gray-500"></div>
+  </div>
+
+  <!-- Add/Edit Modal -->
+  <div id="modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div class="p-6 border-b flex justify-between items-center sticky top-0 bg-white">
+        <h2 id="modalTitle" class="text-xl font-bold">New Shipment</h2>
+        <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+      </div>
+      <form id="shipmentForm" class="p-6 space-y-4">
+        <input type="hidden" id="editId">
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Shipment No.</label>
+            <input type="text" id="shipmentNo" required placeholder="e.g. SHP-2026-001" 
+                   class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Customer</label>
+            <input type="text" id="customer" required placeholder="Customer name"
+                   class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Origin</label>
+            <input type="text" id="origin" required placeholder="Loading port/city"
+                   class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Destination</label>
+            <input type="text" id="destination" required placeholder="Delivery port/city"
+                   class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+            <select id="status" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"></select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">ETA</label>
+            <input type="date" id="eta" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
+          <textarea id="remarks" rows="3" placeholder="Optional notes..."
+                    class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
+        </div>
+        <div class="flex gap-3 pt-2">
+          <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg transition">
+            <i class="fas fa-save mr-2"></i>Save Shipment
+          </button>
+          <button type="button" onclick="closeModal()" class="px-6 py-2 border rounded-lg hover:bg-gray-50 transition">
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Detail Modal -->
+  <div id="detailModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-lg">
+      <div class="p-6 border-b flex justify-between items-center">
+        <h2 class="text-xl font-bold">Shipment Details</h2>
+        <button onclick="closeDetailModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+      </div>
+      <div id="detailContent" class="p-6"></div>
+      <div class="p-4 border-t flex gap-3">
+        <button onclick="editFromDetail()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg transition">
+          <i class="fas fa-edit mr-2"></i>Edit
+        </button>
+        <button onclick="deleteFromDetail()" class="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg transition">
+          <i class="fas fa-trash mr-2"></i>Delete
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="fixed bottom-6 right-6 bg-gray-800 text-white px-6 py-3 rounded-lg shadow-lg hidden transform translate-y-4 opacity-0 transition-all duration-300">
+    <span id="toastMsg"></span>
+  </div>
+
+  <script>
+    const STATUSES = [
+      { value: 'PENDING', label: '📥 Pending', color: 'status-pending' },
+      { value: 'CONFIRMED', label: '📋 Confirmed', color: 'status-confirmed' },
+      { value: 'SHIPPED', label: '🚢 Shipped', color: 'status-shipped' },
+      { value: 'IN_TRANSIT', label: '🌊 In Transit', color: 'status-in_transit' },
+      { value: 'ARRIVED', label: '🏭 Arrived', color: 'status-arrived' },
+      { value: 'CLEARED', label: '📦 Cleared', color: 'status-cleared' },
+      { value: 'DELIVERED', label: '✅ Delivered', color: 'status-delivered' },
+      { value: 'CANCELLED', label: '❌ Cancelled', color: 'status-cancelled' },
+      { value: 'ON_HOLD', label: '⚠️ On Hold', color: 'status-on_hold' }
+    ];
+
+    let db;
+    let currentPage = 1;
+    const perPage = 20;
+    let detailId = null;
+
+    async function init() {
+      const SQL = await initSqlJs({ locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}` });
+      
+      const saved = localStorage.getItem('shipment_db');
+      if (saved) {
+        const data = new Uint8Array(JSON.parse(saved));
+        db = new SQL.Database(data);
+      } else {
+        db = new SQL.Database();
+        db.run(`
+          CREATE TABLE shipments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            shipment_no TEXT UNIQUE NOT NULL,
+            customer TEXT NOT NULL,
+            origin TEXT NOT NULL,
+            destination TEXT NOT NULL,
+            status TEXT DEFAULT 'PENDING',
+            eta TEXT,
+            remarks TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+      }
+
+      populateStatusSelects();
+      renderStats();
+      renderTable();
+    }
+
+    function saveDB() {
+      const data = db.export();
+      const arr = Array.from(data);
+      localStorage.setItem('shipment_db', JSON.stringify(arr));
+    }
+
+    function populateStatusSelects() {
+      const formSelect = document.getElementById('status');
+      const filterSelect = document.getElementById('statusFilter');
+      
+      let formHTML = '', filterHTML = '<option value="">All Status</option>';
+      STATUSES.forEach(s => {
+        formHTML += `<option value="${s.value}">${s.label}</option>`;
+        filterHTML += `<option value="${s.value}">${s.label}</option>`;
+      });
+      formSelect.innerHTML = formHTML;
+      filterSelect.innerHTML = filterHTML;
+    }
+
+    function getStatusBadge(status) {
+      const s = STATUSES.find(x => x.value === status) || STATUSES[0];
+      return `<span class="px-3 py-1 rounded-full text-xs font-semibold ${s.color}">${s.label}</span>`;
+    }
+
+    function renderStats() {
+      const result = db.exec(`SELECT status, COUNT(*) as cnt FROM shipments GROUP BY status`);
+      const counts = { total: 0 };
+      STATUSES.forEach(s => counts[s.value] = 0);
+      
+      if (result.length) {
+        result[0].values.forEach(row => {
+          counts[row[0]] = parseInt(row[1]);
+          counts.total += parseInt(row[1]);
+        });
+      }
+
+      const statsHTML = `
+        <div class="bg-white rounded-xl shadow-sm p-4">
+          <div class="text-3xl font-bold text-blue-600">${counts.total}</div>
+          <div class="text-gray-500 text-sm">Total Shipments</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-4">
+          <div class="text-3xl font-bold text-cyan-600">${counts.IN_TRANSIT + counts.SHIPPED}</div>
+          <div class="text-gray-500 text-sm">In Transit</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-4">
+          <div class="text-3xl font-bold text-green-600">${counts.DELIVERED + counts.CLEARED}</div>
+          <div class="text-gray-500 text-sm">Completed</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-4">
+          <div class="text-3xl font-bold text-yellow-600">${counts.PENDING + counts.CONFIRMED}</div>
+          <div class="text-gray-500 text-sm">Pending / Confirmed</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm p-4">
+          <div class="text-3xl font-bold text-red-600">${counts.CANCELLED + counts.ON_HOLD}</div>
+          <div class="text-gray-500 text-sm">Cancelled / On Hold</div>
+        </div>
+      `;
+      document.getElementById('stats').innerHTML = statsHTML;
+    }
+
+    function renderTable() {
+      const search = document.getElementById('searchInput').value.trim();
+      const statusFilter = document.getElementById('statusFilter').value;
+      const [sortCol, sortDir] = document.getElementById('sortBy').value.split('-');
+
+      let where = [];
+      let params = [];
+      if (search) {
+        where.push(`(shipment_no LIKE ? OR customer LIKE ?)`);
+        params.push(`%${search}%`, `%${search}%`);
+      }
+      if (statusFilter) {
+        where.push(`status = ?`);
+        params.push(statusFilter);
+      }
+      const whereSQL = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+      const order = `${sortCol} ${sortDir}`;
+
+      const countResult = db.exec(`SELECT COUNT(*) FROM shipments ${whereSQL}`, params);
+      const total = countResult[0]?.values[0]?[0] || 0;
+      const totalPages = Math.ceil(total / perPage);
+      const offset = (currentPage - 1) * perPage;
+
+      const data = db.exec(`SELECT * FROM shipments ${whereSQL} ORDER BY ${order} LIMIT ${perPage} OFFSET ${offset}`, params);
+
+      const tbody = document.getElementById('tableBody');
+      const empty = document.getElementById('emptyState');
+
+      if (!data.length || !data[0].values.length) {
+        tbody.innerHTML = '';
+        empty.classList.remove('hidden');
+        document.getElementById('pagination').innerHTML = '';
+        return;
+      }
+
+      empty.classList.add('hidden');
+      const cols = data[0].columns;
+      const rows = data[0].values;
+
+      tbody.innerHTML = rows.map(row => {
+        const r = Object.fromEntries(cols.map((c, i) => [c, row[i]]));
+        return `
+          <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetail(${r.id})">
+            <td class="px-4 py-3 font-medium text-blue-600">${r.shipment_no}</td>
+            <td class="px-4 py-3">${r.customer}</td>
+            <td class="px-4 py-3 text-sm text-gray-600">${r.origin} → ${r.destination}</td>
+            <td class="px-4 py-3">${getStatusBadge(r.status)}</td>
+            <td class="px-4 py-3 text-sm ${r.eta ? (new Date(r.eta) < new Date() ? 'text-red-500 font-medium' : 'text-gray-600') : 'text-gray-400'}">${r.eta || '-'}</td>
+            <td class="px-4 py-3 text-sm text-gray-400">${r.updated_at ? r.updated_at.slice(0,10) : '-'}</td>
+            <td class="px-4 py-3 text-center">
+              <button onclick="event.stopPropagation(); openEditModal(${r.id})" class="text-blue-500 hover:text-blue-700 mx-1" title="Edit"><i class="fas fa-edit"></i></button>
+              <button onclick="event.stopPropagation(); deleteShipment(${r.id})" class="text-red-500 hover:text-red-700 mx-1" title="Delete"><i class="fas fa-trash"></i></button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      const pagHTML = `
+        <span>Showing ${Math.min(offset+1, total)}-${Math.min(offset+perPage, total)} of ${total}</span>
+        <div class="flex gap-1">
+          <button onclick="changePage(${currentPage-1})" ${currentPage===1?'disabled':''} class="px-3 py-1 rounded border hover:bg-gray-50 disabled:opacity-40">Prev</button>
+          ${Array.from({length: Math.min(5, totalPages)}, (_, i) => {
+            const p = Math.max(1, Math.min(totalPages - 4, currentPage - 2)) + i;
+            return `<button onclick="changePage(${p})" class="px-3 py-1 rounded border ${p===currentPage?'bg-blue-600 text-white':'hover:bg-gray-50'}">${p}</button>`;
+          }).join('')}
+          <button onclick="changePage(${currentPage+1})" ${currentPage>=totalPages?'disabled':''} class="px-3 py-1 rounded border hover:bg-gray-50 disabled:opacity-40">Next</button>
+        </div>
+      `;
+      document.getElementById('pagination').innerHTML = pagHTML;
+    }
+
+    function changePage(p) {
+      currentPage = p;
+      renderTable();
+    }
+
+    function openAddModal() {
+      document.getElementById('modalTitle').textContent = 'New Shipment';
+      document.getElementById('editId').value = '';
+      document.getElementById('shipmentForm').reset();
+      document.getElementById('status').value = 'PENDING';
+      const no = 'SHP-' + new Date().getFullYear() + '-' + String(Math.floor(Math.random()*9000)+1000).padStart(4,'0');
+      document.getElementById('shipmentNo').value = no;
+      document.getElementById('modal').classList.remove('hidden');
+      document.getElementById('modal').classList.add('flex');
+    }
+
+    function openEditModal(id) {
+      const data = db.exec(`SELECT * FROM shipments WHERE id = ?`, [id]);
+      if (!data.length) return;
+      const cols = data[0].columns;
+      const row = Object.fromEntries(cols.map((c, i) => [c, data[0].values[0][i]]));
+
+      document.getElementById('modalTitle').textContent = 'Edit Shipment';
+      document.getElementById('editId').value = id;
+      document.getElementById('shipmentNo').value = row.shipment_no;
+      document.getElementById('customer').value = row.customer;
+      document.getElementById('origin').value = row.origin;
+      document.getElementById('destination').value = row.destination;
+      document.getElementById('status').value = row.status;
+      document.getElementById('eta').value = row.eta || '';
+      document.getElementById('remarks').value = row.remarks || '';
+
+      document.getElementById('modal').classList.remove('hidden');
+      document.getElementById('modal').classList.add('flex');
+    }
+
+    function closeModal() {
+      document.getElementById('modal').classList.add('hidden');
+      document.getElementById('modal').classList.remove('flex');
+    }
+
+    function openDetail(id) {
+      detailId = id;
+      const data = db.exec(`SELECT * FROM shipments WHERE id = ?`, [id]);
+      if (!data.length) return;
+      const cols = data[0].columns;
+      const r = Object.fromEntries(cols.map((c, i) => [c, data[0].values[0][i]]));
+
+      const content = document.getElementById('detailContent');
+      content.innerHTML = `
+        <div class="space-y-3">
+          <div class="flex justify-between items-center">
+            <span class="text-2xl font-bold text-blue-600">${r.shipment_no}</span>
+            ${getStatusBadge(r.status)}
+          </div>
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div><span class="text-gray-500">Customer</span><div class="font-medium">${r.customer}</div></div>
+            <div><span class="text-gray-500">ETA</span><div class="font-medium ${r.eta?(new Date(r.eta)<new Date()?'text-red-500':'text-gray-800'):'text-gray-400'}">${r.eta || 'Not set'}</div></div>
+            <div><span class="text-gray-500">Origin</span><div class="font-medium">${r.origin}</div></div>
+            <div><span class="text-gray-500">Destination</span><div class="font-medium">${r.destination}</div></div>
+            <div><span class="text-gray-500">Created</span><div class="font-medium">${r.created_at ? r.created_at.slice(0,16).replace('T',' ') : '-'}</div></div>
+            <div><span class="text-gray-500">Last Updated</span><div class="font-medium">${r.updated_at ? r.updated_at.slice(0,16).replace('T',' ') : '-'}</div></div>
+          </div>
+          ${r.remarks ? `<div class="bg-gray-50 rounded-lg p-3"><span class="text-gray-500 text-sm">Remarks</span><div class="mt-1">${r.remarks}</div></div>` : ''}
+        </div>
+      `;
+      document.getElementById('detailModal').classList.remove('hidden');
+      document.getElementById('detailModal').classList.add('flex');
+    }
+
+    function closeDetailModal() {
+      document.getElementById('detailModal').classList.add('hidden');
+      document.getElementById('detailModal').classList.remove('flex');
+      detailId = null;
+    }
+
+    function editFromDetail() {
+      closeDetailModal();
+      openEditModal(detailId);
+    }
+
+    function deleteFromDetail() {
+      closeDetailModal();
+      deleteShipment(detailId);
+    }
+
+    document.getElementById('shipmentForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const id = document.getElementById('editId').value;
+      const shipment_no = document.getElementById('shipmentNo').value.trim();
+      const customer = document.getElementById('customer').value.trim();
+      const origin = document.getElementById('origin').value.trim();
+      const destination = document.getElementById('destination').value.trim();
+      const status = document.getElementById('status').value;
+      const eta = document.getElementById('eta').value;
+      const remarks = document.getElementById('remarks').value.trim();
+
+      if (id) {
+        db.run(`UPDATE shipments SET shipment_no=?, customer=?, origin=?, destination=?, status=?, eta=?, remarks=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+          [shipment_no, customer, origin, destination, status, eta||null, remarks||null, id]);
+        showToast('Shipment updated successfully');
+      } else {
+        try {
+          db.run(`INSERT INTO shipments (shipment_no, customer, origin, destination, status, eta, remarks) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [shipment_no, customer, origin, destination, status, eta||null, remarks||null]);
+          showToast('Shipment added successfully');
+        } catch(e) {
+          if (e.message.includes('UNIQUE')) {
+            showToast('Shipment number already exists!', 'error');
+            return;
+          }
+        }
+      }
+
+      saveDB();
+      closeModal();
+      renderStats();
+      renderTable();
+    });
+
+    function deleteShipment(id) {
+      if (!confirm('Are you sure you want to delete this shipment?')) return;
+      db.run(`DELETE FROM shipments WHERE id = ?`, [id]);
+      saveDB();
+      renderStats();
+      renderTable();
+      showToast('Shipment deleted');
+    }
+
+    function exportCSV() {
+      const data = db.exec(`SELECT shipment_no, customer, origin, destination, status, eta, remarks, created_at, updated_at FROM shipments ORDER BY created_at DESC`);
+      if (!data.length) { showToast('No data to export', 'error'); return; }
+      const cols = data[0].columns;
+      const rows = data[0].values;
+      let csv = cols.join(',') + '\n';
+      rows.forEach(r => csv += r.map(v => `"${(v||'').toString().replace(/"/g,'""')}"`).join(',') + '\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `shipments_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+      showToast('CSV exported');
+    }
+
+    function showToast(msg, type='success') {
+      const toast = document.getElementById('toast');
+      document.getElementById('toastMsg').textContent = msg;
+      toast.style.background = type === 'error' ? '#dc2626' : '#1f2937';
+      toast.classList.remove('hidden', 'translate-y-4', 'opacity-0');
+      setTimeout(() => toast.classList.add('hidden'), 3000);
+    }
+
+    init();
+  </script>
+</body>
+</html>
