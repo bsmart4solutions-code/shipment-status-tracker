@@ -3,510 +3,1774 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Shipment Status Tracker</title>
+  <title>QI-Net Freight Forwarder Suite</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <style>
-    .status-pending { background: #fef3c7; color: #92400e; }
-    .status-confirmed { background: #dbeafe; color: #1e40af; }
-    .status-shipped { background: #e0e7ff; color: #3730a3; }
-    .status-in_transit { background: #cffafe; color: #0e7490; }
-    .status-arrived { background: #d1fae5; color: #065f46; }
-    .status-cleared { background: #bbf7d0; color: #15803d; }
-    .status-delivered { background: #dcfce7; color: #166534; }
-    .status-cancelled { background: #fee2e2; color: #991b1b; }
-    .status-on_hold { background: #f3e8ff; color: #7e22ce; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    .nav-item.active { background: #1d4ed8; color: #fff; }
+    .nav-item.active i { color: #fff; }
+    .view { display: none; }
+    .view.active { display: block; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    @media print {
+      body * { visibility: hidden; }
+      #printArea, #printArea * { visibility: visible; }
+      #printArea { position: absolute; left: 0; top: 0; width: 100%; }
+    }
   </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
-  <div id="app" class="max-w-7xl mx-auto p-6">
-    <!-- Header -->
-    <div class="flex items-center justify-between mb-8">
-      <div>
-        <h1 class="text-3xl font-bold text-gray-800">🚢 Shipment Status Tracker</h1>
-        <p class="text-gray-500 mt-1">Real-time shipment monitoring</p>
+<body class="bg-gray-100 min-h-screen text-gray-800">
+  <div class="flex min-h-screen">
+    <!-- Sidebar -->
+    <aside id="sidebar" class="fixed md:static inset-y-0 left-0 z-40 w-64 bg-gray-900 text-gray-200 flex flex-col transform -translate-x-full md:translate-x-0 transition-transform">
+      <div class="p-5 border-b border-gray-800 flex items-center gap-3">
+        <img id="sidebarLogo" src="" class="w-9 h-9 rounded hidden object-cover">
+        <div>
+          <div id="sidebarCompanyName" class="font-bold text-lg leading-tight">QI-Net Freight</div>
+          <div class="text-xs text-gray-400">Forwarder Management Suite</div>
+        </div>
       </div>
-      <div class="flex gap-3">
-        <button onclick="exportCSV()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition">
-          <i class="fas fa-file-csv"></i> Export CSV
-        </button>
-        <button onclick="openAddModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition">
-          <i class="fas fa-plus"></i> New Shipment
-        </button>
-      </div>
+      <nav class="flex-1 overflow-y-auto py-3 px-2 space-y-1 text-sm">
+        <button data-view="dashboard" class="nav-item w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 transition"><i class="fas fa-chart-line w-4"></i>Dashboard</button>
+        <button data-view="shipments" class="nav-item w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 transition"><i class="fas fa-ship w-4"></i>Shipments</button>
+        <button data-view="quotations" class="nav-item w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 transition"><i class="fas fa-file-invoice-dollar w-4"></i>Quotations</button>
+        <button data-view="customers" class="nav-item w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 transition"><i class="fas fa-address-book w-4"></i>Customers</button>
+        <button data-view="documents" class="nav-item w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 transition"><i class="fas fa-folder-open w-4"></i>Documents</button>
+        <button data-view="invoices" class="nav-item w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 transition"><i class="fas fa-file-invoice w-4"></i>Invoices</button>
+        <button data-view="track" class="nav-item w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 transition"><i class="fas fa-map-marker-alt w-4"></i>Track a Shipment</button>
+        <button data-view="reports" class="nav-item w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 transition"><i class="fas fa-chart-pie w-4"></i>Reports</button>
+        <button data-view="settings" class="nav-item w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-800 transition"><i class="fas fa-cog w-4"></i>Settings</button>
+      </nav>
+      <div class="p-3 text-xs text-gray-500 border-t border-gray-800">Data stored locally in this browser.</div>
+    </aside>
+    <div id="sidebarOverlay" class="fixed inset-0 bg-black/40 z-30 hidden md:hidden"></div>
+
+    <!-- Main -->
+    <div class="flex-1 min-w-0">
+      <header class="bg-white shadow-sm px-4 md:px-6 py-3 flex items-center justify-between sticky top-0 z-20">
+        <div class="flex items-center gap-3">
+          <button id="menuToggle" class="md:hidden text-gray-500 text-xl"><i class="fas fa-bars"></i></button>
+          <h1 id="viewTitle" class="text-xl font-bold text-gray-800">Dashboard</h1>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="hidden sm:inline text-sm text-gray-400" id="todayDate"></span>
+        </div>
+      </header>
+      <main class="p-4 md:p-6">
+
+        <!-- DASHBOARD -->
+        <section id="view-dashboard" class="view active space-y-6">
+          <div id="dashStats" class="grid grid-cols-2 lg:grid-cols-5 gap-4"></div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="bg-white rounded-xl shadow-sm p-4">
+              <h3 class="font-semibold mb-3">Shipments by Status</h3>
+              <canvas id="chartStatus" height="200"></canvas>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm p-4">
+              <h3 class="font-semibold mb-3">Shipments by Mode</h3>
+              <canvas id="chartMode" height="200"></canvas>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm p-4">
+              <h3 class="font-semibold mb-3">Monthly Shipment Volume (6 mo)</h3>
+              <canvas id="chartVolume" height="200"></canvas>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm p-4">
+              <h3 class="font-semibold mb-3">Top Customers</h3>
+              <canvas id="chartCustomers" height="200"></canvas>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="bg-white rounded-xl shadow-sm p-4">
+              <h3 class="font-semibold mb-3"><i class="fas fa-clock text-amber-500 mr-1"></i>Upcoming ETAs (7 days)</h3>
+              <div id="upcomingEta" class="space-y-2 text-sm"></div>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm p-4">
+              <h3 class="font-semibold mb-3"><i class="fas fa-history text-blue-500 mr-1"></i>Recent Activity</h3>
+              <div id="recentActivity" class="space-y-2 text-sm"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SHIPMENTS -->
+        <section id="view-shipments" class="view space-y-4">
+          <div class="flex flex-wrap gap-2 items-center justify-between">
+            <div class="flex flex-wrap gap-2 flex-1">
+              <input id="shpSearch" placeholder="Search shipment#, customer, B/L, container..." class="px-3 py-2 border rounded-lg flex-1 min-w-[220px] outline-none focus:ring-2 focus:ring-blue-500" oninput="renderShipments()">
+              <select id="shpModeFilter" class="px-3 py-2 border rounded-lg outline-none" onchange="renderShipments()"><option value="">All Modes</option></select>
+              <select id="shpStatusFilter" class="px-3 py-2 border rounded-lg outline-none" onchange="renderShipments()"><option value="">All Status</option></select>
+              <select id="shpSort" class="px-3 py-2 border rounded-lg outline-none" onchange="renderShipments()">
+                <option value="created_at-desc">Newest First</option>
+                <option value="created_at-asc">Oldest First</option>
+                <option value="eta-asc">ETA Earliest</option>
+                <option value="shipment_no-asc">Shipment # A-Z</option>
+              </select>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="exportCSV('shipments')" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-file-csv mr-1"></i>Export</button>
+              <label class="bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg text-sm cursor-pointer"><i class="fas fa-file-import mr-1"></i>Import<input type="file" accept=".csv" class="hidden" onchange="importShipmentsCSV(event)"></label>
+              <button onclick="openShipmentModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus mr-1"></i>New Shipment</button>
+            </div>
+          </div>
+          <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-gray-50 text-gray-600 uppercase text-xs">
+                  <tr>
+                    <th class="px-4 py-3 text-left">Shipment #</th>
+                    <th class="px-4 py-3 text-left">Mode</th>
+                    <th class="px-4 py-3 text-left">Customer</th>
+                    <th class="px-4 py-3 text-left">Route</th>
+                    <th class="px-4 py-3 text-left">Carrier / Vessel</th>
+                    <th class="px-4 py-3 text-left">Status</th>
+                    <th class="px-4 py-3 text-left">ETA</th>
+                    <th class="px-4 py-3 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="shpTableBody" class="divide-y"></tbody>
+              </table>
+            </div>
+            <div id="shpEmpty" class="hidden p-12 text-center text-gray-400">
+              <i class="fas fa-ship text-5xl mb-4"></i>
+              <p class="text-lg">No shipments found</p>
+            </div>
+          </div>
+          <div id="shpPagination" class="flex justify-between items-center text-sm text-gray-500"></div>
+        </section>
+
+        <!-- QUOTATIONS -->
+        <section id="view-quotations" class="view space-y-4">
+          <div class="flex flex-wrap gap-2 items-center justify-between">
+            <input id="quoSearch" placeholder="Search quote#, customer..." class="px-3 py-2 border rounded-lg flex-1 min-w-[220px] outline-none focus:ring-2 focus:ring-blue-500" oninput="renderQuotations()">
+            <button onclick="openQuotationModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus mr-1"></i>New Quotation</button>
+          </div>
+          <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-gray-50 text-gray-600 uppercase text-xs">
+                  <tr>
+                    <th class="px-4 py-3 text-left">Quote #</th>
+                    <th class="px-4 py-3 text-left">Customer</th>
+                    <th class="px-4 py-3 text-left">Mode</th>
+                    <th class="px-4 py-3 text-left">Route</th>
+                    <th class="px-4 py-3 text-right">Total</th>
+                    <th class="px-4 py-3 text-left">Valid Until</th>
+                    <th class="px-4 py-3 text-left">Status</th>
+                    <th class="px-4 py-3 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="quoTableBody" class="divide-y"></tbody>
+              </table>
+            </div>
+            <div id="quoEmpty" class="hidden p-12 text-center text-gray-400">
+              <i class="fas fa-file-invoice-dollar text-5xl mb-4"></i>
+              <p class="text-lg">No quotations yet</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- CUSTOMERS -->
+        <section id="view-customers" class="view space-y-4">
+          <div class="flex flex-wrap gap-2 items-center justify-between">
+            <input id="custSearch" placeholder="Search company, contact, email..." class="px-3 py-2 border rounded-lg flex-1 min-w-[220px] outline-none focus:ring-2 focus:ring-blue-500" oninput="renderCustomers()">
+            <div class="flex gap-2">
+              <button onclick="exportCSV('customers')" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-file-csv mr-1"></i>Export</button>
+              <button onclick="openCustomerModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus mr-1"></i>New Customer</button>
+            </div>
+          </div>
+          <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-gray-50 text-gray-600 uppercase text-xs">
+                  <tr>
+                    <th class="px-4 py-3 text-left">Company</th>
+                    <th class="px-4 py-3 text-left">Contact</th>
+                    <th class="px-4 py-3 text-left">Email / Phone</th>
+                    <th class="px-4 py-3 text-left">Country</th>
+                    <th class="px-4 py-3 text-center">Shipments</th>
+                    <th class="px-4 py-3 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="custTableBody" class="divide-y"></tbody>
+              </table>
+            </div>
+            <div id="custEmpty" class="hidden p-12 text-center text-gray-400">
+              <i class="fas fa-address-book text-5xl mb-4"></i>
+              <p class="text-lg">No customers yet</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- DOCUMENTS -->
+        <section id="view-documents" class="view space-y-4">
+          <div class="flex flex-wrap gap-2 items-center justify-between">
+            <input id="docSearch" placeholder="Search shipment#, document type..." class="px-3 py-2 border rounded-lg flex-1 min-w-[220px] outline-none focus:ring-2 focus:ring-blue-500" oninput="renderDocuments()">
+            <select id="docStatusFilter" class="px-3 py-2 border rounded-lg outline-none" onchange="renderDocuments()"><option value="">All Status</option></select>
+          </div>
+          <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-gray-50 text-gray-600 uppercase text-xs">
+                  <tr>
+                    <th class="px-4 py-3 text-left">Shipment #</th>
+                    <th class="px-4 py-3 text-left">Document</th>
+                    <th class="px-4 py-3 text-left">Doc No.</th>
+                    <th class="px-4 py-3 text-left">Status</th>
+                    <th class="px-4 py-3 text-left">Issued</th>
+                    <th class="px-4 py-3 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="docTableBody" class="divide-y"></tbody>
+              </table>
+            </div>
+            <div id="docEmpty" class="hidden p-12 text-center text-gray-400">
+              <i class="fas fa-folder-open text-5xl mb-4"></i>
+              <p class="text-lg">No documents yet — create a shipment to auto-generate its document checklist</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- INVOICES -->
+        <section id="view-invoices" class="view space-y-4">
+          <div class="flex flex-wrap gap-2 items-center justify-between">
+            <input id="invSearch" placeholder="Search invoice#, customer..." class="px-3 py-2 border rounded-lg flex-1 min-w-[220px] outline-none focus:ring-2 focus:ring-blue-500" oninput="renderInvoices()">
+            <div class="flex gap-2">
+              <button onclick="exportCSV('invoices')" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-file-csv mr-1"></i>Export</button>
+              <button onclick="openInvoiceModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-plus mr-1"></i>New Invoice</button>
+            </div>
+          </div>
+          <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-gray-50 text-gray-600 uppercase text-xs">
+                  <tr>
+                    <th class="px-4 py-3 text-left">Invoice #</th>
+                    <th class="px-4 py-3 text-left">Customer</th>
+                    <th class="px-4 py-3 text-left">Shipment</th>
+                    <th class="px-4 py-3 text-right">Amount</th>
+                    <th class="px-4 py-3 text-left">Due</th>
+                    <th class="px-4 py-3 text-left">Status</th>
+                    <th class="px-4 py-3 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="invTableBody" class="divide-y"></tbody>
+              </table>
+            </div>
+            <div id="invEmpty" class="hidden p-12 text-center text-gray-400">
+              <i class="fas fa-file-invoice text-5xl mb-4"></i>
+              <p class="text-lg">No invoices yet</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- TRACK -->
+        <section id="view-track" class="view">
+          <div class="bg-gradient-to-br from-blue-700 to-blue-900 rounded-2xl p-10 text-center text-white mb-6">
+            <i class="fas fa-ship text-4xl mb-3"></i>
+            <h2 class="text-2xl font-bold mb-1">Track Your Shipment</h2>
+            <p class="text-blue-100 mb-5">Enter your shipment number to view its latest status and timeline</p>
+            <div class="flex max-w-md mx-auto gap-2">
+              <input id="trackInput" placeholder="e.g. SHP-2026-0001" class="flex-1 px-4 py-3 rounded-lg text-gray-800 outline-none" onkeydown="if(event.key==='Enter')trackShipment()">
+              <button onclick="trackShipment()" class="bg-white text-blue-700 font-semibold px-5 py-3 rounded-lg hover:bg-blue-50">Track</button>
+            </div>
+          </div>
+          <div id="trackResult"></div>
+        </section>
+
+        <!-- REPORTS -->
+        <section id="view-reports" class="view space-y-6">
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="bg-white rounded-xl shadow-sm p-4">
+              <h3 class="font-semibold mb-3">Revenue by Month (Sell Price)</h3>
+              <canvas id="chartRevenue" height="220"></canvas>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm p-4">
+              <h3 class="font-semibold mb-3">On-Time Delivery Rate</h3>
+              <canvas id="chartOnTime" height="220"></canvas>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm p-4">
+              <h3 class="font-semibold mb-3">Quotation Win Rate</h3>
+              <canvas id="chartQuoteRate" height="220"></canvas>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm p-4">
+              <h3 class="font-semibold mb-3">Invoice Status Breakdown</h3>
+              <canvas id="chartInvoiceStatus" height="220"></canvas>
+            </div>
+          </div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section id="view-settings" class="view space-y-6 max-w-3xl">
+          <div class="bg-white rounded-xl shadow-sm p-6">
+            <h3 class="font-semibold mb-4">Company Profile</h3>
+            <form id="settingsForm" class="space-y-4">
+              <div class="grid grid-cols-2 gap-4">
+                <div><label class="block text-sm font-medium mb-1">Company Name</label><input id="setCompanyName" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+                <div><label class="block text-sm font-medium mb-1">Default Currency</label>
+                  <select id="setCurrency" class="w-full px-3 py-2 border rounded-lg outline-none"></select>
+                </div>
+              </div>
+              <div><label class="block text-sm font-medium mb-1">Address</label><input id="setAddress" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+              <div class="grid grid-cols-2 gap-4">
+                <div><label class="block text-sm font-medium mb-1">Phone</label><input id="setPhone" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+                <div><label class="block text-sm font-medium mb-1">Email</label><input id="setEmail" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+              </div>
+              <div><label class="block text-sm font-medium mb-1">Logo</label><input type="file" id="setLogo" accept="image/*" class="w-full text-sm"></div>
+              <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-lg"><i class="fas fa-save mr-1"></i>Save Profile</button>
+            </form>
+          </div>
+          <div class="bg-white rounded-xl shadow-sm p-6">
+            <h3 class="font-semibold mb-4">Data Management</h3>
+            <div class="flex flex-wrap gap-3">
+              <button onclick="exportBackup()" class="bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg text-sm"><i class="fas fa-download mr-1"></i>Export Full Backup</button>
+              <label class="bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg text-sm cursor-pointer"><i class="fas fa-upload mr-1"></i>Restore Backup<input type="file" accept=".json" class="hidden" onchange="importBackup(event)"></label>
+              <button onclick="resetAllData()" class="bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-lg text-sm"><i class="fas fa-trash mr-1"></i>Reset All Data</button>
+            </div>
+            <p class="text-xs text-gray-400 mt-3">All data is stored locally in your browser (localStorage). Export a backup regularly to avoid data loss.</p>
+          </div>
+        </section>
+
+      </main>
     </div>
-
-    <!-- Stats Cards -->
-    <div id="stats" class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8"></div>
-
-    <!-- Search & Filter -->
-    <div class="bg-white rounded-xl shadow-sm p-4 mb-6 flex flex-wrap gap-4 items-center">
-      <div class="flex-1 min-w-[200px]">
-        <input type="text" id="searchInput" placeholder="Search by shipment no. or customer..." 
-               class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" oninput="renderTable()">
-      </div>
-      <select id="statusFilter" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" onchange="renderTable()">
-        <option value="">All Status</option>
-      </select>
-      <select id="sortBy" class="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" onchange="renderTable()">
-        <option value="created_at-desc">Newest First</option>
-        <option value="created_at-asc">Oldest First</option>
-        <option value="shipment_no-asc">Shipment # A-Z</option>
-        <option value="eta-asc">ETA Earliest</option>
-      </select>
-      <button onclick="renderTable()" class="bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg transition">
-        <i class="fas fa-filter"></i>
-      </button>
-    </div>
-
-    <!-- Table -->
-    <div class="bg-white rounded-xl shadow-sm overflow-hidden">
-      <div class="overflow-x-auto">
-        <table class="w-full">
-          <thead class="bg-gray-50 text-gray-600 text-sm uppercase">
-            <tr>
-              <th class="px-4 py-3 text-left">Shipment #</th>
-              <th class="px-4 py-3 text-left">Customer</th>
-              <th class="px-4 py-3 text-left">Route</th>
-              <th class="px-4 py-3 text-left">Status</th>
-              <th class="px-4 py-3 text-left">ETA</th>
-              <th class="px-4 py-3 text-left">Updated</th>
-              <th class="px-4 py-3 text-center">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="tableBody" class="divide-y"></tbody>
-        </table>
-      </div>
-      <div id="emptyState" class="hidden p-12 text-center text-gray-400">
-        <i class="fas fa-ship text-5xl mb-4"></i>
-        <p class="text-lg">No shipments found</p>
-        <p class="text-sm mt-1">Add your first shipment to get started</p>
-      </div>
-    </div>
-
-    <!-- Pagination -->
-    <div id="pagination" class="flex justify-between items-center mt-4 text-sm text-gray-500"></div>
   </div>
 
-  <!-- Add/Edit Modal -->
-  <div id="modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
-    <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-      <div class="p-6 border-b flex justify-between items-center sticky top-0 bg-white">
-        <h2 id="modalTitle" class="text-xl font-bold">New Shipment</h2>
-        <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+  <!-- Shipment Modal -->
+  <div id="shpModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[92vh] overflow-y-auto">
+      <div class="p-5 border-b flex justify-between items-center sticky top-0 bg-white z-10">
+        <h2 id="shpModalTitle" class="text-lg font-bold">New Shipment</h2>
+        <button onclick="closeModal('shpModal')" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
       </div>
-      <form id="shipmentForm" class="p-6 space-y-4">
-        <input type="hidden" id="editId">
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Shipment No.</label>
-            <input type="text" id="shipmentNo" required placeholder="e.g. SHP-2026-001" 
-                   class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+      <form id="shpForm" class="p-5 space-y-5">
+        <input type="hidden" id="shpEditId">
+        <fieldset class="space-y-3">
+          <legend class="text-xs font-bold uppercase text-gray-400 mb-1">Basic Info</legend>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-sm font-medium mb-1">Shipment No.</label><input id="shpNo" required class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+            <div><label class="block text-sm font-medium mb-1">Mode</label><select id="shpMode" class="w-full px-3 py-2 border rounded-lg outline-none"></select></div>
           </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Customer</label>
-            <input type="text" id="customer" required placeholder="Customer name"
-                   class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-sm font-medium mb-1">Customer</label><select id="shpCustomer" required class="w-full px-3 py-2 border rounded-lg outline-none"></select></div>
+            <div><label class="block text-sm font-medium mb-1">Incoterm</label><select id="shpIncoterm" class="w-full px-3 py-2 border rounded-lg outline-none"></select></div>
           </div>
-        </div>
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Origin</label>
-            <input type="text" id="origin" required placeholder="Loading port/city"
-                   class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-sm font-medium mb-1">Shipper</label><input id="shpShipper" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+            <div><label class="block text-sm font-medium mb-1">Consignee</label><input id="shpConsignee" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
           </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Destination</label>
-            <input type="text" id="destination" required placeholder="Delivery port/city"
-                   class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+        </fieldset>
+        <fieldset class="space-y-3">
+          <legend class="text-xs font-bold uppercase text-gray-400 mb-1">Route & Carrier</legend>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-sm font-medium mb-1">Origin (POL)</label><input id="shpOrigin" required list="portList" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+            <div><label class="block text-sm font-medium mb-1">Destination (POD)</label><input id="shpDestination" required list="portList" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
           </div>
-        </div>
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
-            <select id="status" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"></select>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-sm font-medium mb-1">Carrier</label><input id="shpCarrier" list="carrierList" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+            <div><label class="block text-sm font-medium mb-1">Vessel / Flight / Voyage</label><input id="shpVesselVoyage" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
           </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">ETA</label>
-            <input type="date" id="eta" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+          <div class="grid grid-cols-3 gap-3">
+            <div><label class="block text-sm font-medium mb-1">Container No.</label><input id="shpContainerNo" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+            <div><label class="block text-sm font-medium mb-1">Container Type</label><select id="shpContainerType" class="w-full px-3 py-2 border rounded-lg outline-none"></select></div>
+            <div><label class="block text-sm font-medium mb-1">Booking No.</label><input id="shpBookingNo" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
           </div>
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
-          <textarea id="remarks" rows="3" placeholder="Optional notes..."
-                    class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
-        </div>
-        <div class="flex gap-3 pt-2">
-          <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg transition">
-            <i class="fas fa-save mr-2"></i>Save Shipment
-          </button>
-          <button type="button" onclick="closeModal()" class="px-6 py-2 border rounded-lg hover:bg-gray-50 transition">
-            Cancel
-          </button>
+          <div><label class="block text-sm font-medium mb-1">B/L or AWB No.</label><input id="shpBlNo" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+        </fieldset>
+        <fieldset class="space-y-3">
+          <legend class="text-xs font-bold uppercase text-gray-400 mb-1">Cargo Details</legend>
+          <div class="grid grid-cols-3 gap-3">
+            <div><label class="block text-sm font-medium mb-1">Weight (kg)</label><input type="number" step="0.01" id="shpWeight" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+            <div><label class="block text-sm font-medium mb-1">Volume (CBM)</label><input type="number" step="0.01" id="shpVolume" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+            <div><label class="block text-sm font-medium mb-1">Packages</label><input type="number" id="shpPackages" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+          </div>
+          <div><label class="block text-sm font-medium mb-1">Cargo Description</label><input id="shpCargoDesc" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+        </fieldset>
+        <fieldset class="space-y-3">
+          <legend class="text-xs font-bold uppercase text-gray-400 mb-1">Key Dates</legend>
+          <div class="grid grid-cols-3 gap-3">
+            <div><label class="block text-sm font-medium mb-1">SI Cutoff</label><input type="date" id="shpSiCutoff" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+            <div><label class="block text-sm font-medium mb-1">CY Cutoff</label><input type="date" id="shpCyCutoff" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+            <div><label class="block text-sm font-medium mb-1">VGM Cutoff</label><input type="date" id="shpVgmCutoff" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+          </div>
+          <div class="grid grid-cols-3 gap-3">
+            <div><label class="block text-sm font-medium mb-1">ETD</label><input type="date" id="shpEtd" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+            <div><label class="block text-sm font-medium mb-1">ETA</label><input type="date" id="shpEta" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+            <div><label class="block text-sm font-medium mb-1">ATA (Actual)</label><input type="date" id="shpAta" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+          </div>
+        </fieldset>
+        <fieldset class="space-y-3">
+          <legend class="text-xs font-bold uppercase text-gray-400 mb-1">Status & Cost</legend>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="block text-sm font-medium mb-1">Status</label><select id="shpStatus" class="w-full px-3 py-2 border rounded-lg outline-none"></select></div>
+            <div><label class="block text-sm font-medium mb-1">Customs Status</label><select id="shpCustomsStatus" class="w-full px-3 py-2 border rounded-lg outline-none"></select></div>
+          </div>
+          <div class="grid grid-cols-3 gap-3">
+            <div><label class="block text-sm font-medium mb-1">Cost (Buy)</label><input type="number" step="0.01" id="shpCost" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+            <div><label class="block text-sm font-medium mb-1">Sell Price</label><input type="number" step="0.01" id="shpSellPrice" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+            <div><label class="block text-sm font-medium mb-1">Currency</label><select id="shpCurrency" class="w-full px-3 py-2 border rounded-lg outline-none"></select></div>
+          </div>
+          <div><label class="block text-sm font-medium mb-1">Remarks</label><textarea id="shpRemarks" rows="2" class="w-full px-3 py-2 border rounded-lg outline-none"></textarea></div>
+        </fieldset>
+        <div class="flex gap-3 pt-2 sticky bottom-0 bg-white pb-1">
+          <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg"><i class="fas fa-save mr-2"></i>Save Shipment</button>
+          <button type="button" onclick="closeModal('shpModal')" class="px-6 py-2 border rounded-lg hover:bg-gray-50">Cancel</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- Detail Modal -->
-  <div id="detailModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
-    <div class="bg-white rounded-xl shadow-xl w-full max-w-lg">
-      <div class="p-6 border-b flex justify-between items-center">
-        <h2 class="text-xl font-bold">Shipment Details</h2>
-        <button onclick="closeDetailModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+  <!-- Shipment Detail Modal -->
+  <div id="shpDetailModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
+      <div class="p-5 border-b flex justify-between items-center sticky top-0 bg-white z-10">
+        <h2 class="text-lg font-bold">Shipment Details</h2>
+        <button onclick="closeModal('shpDetailModal')" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
       </div>
-      <div id="detailContent" class="p-6"></div>
-      <div class="p-4 border-t flex gap-3">
-        <button onclick="editFromDetail()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg transition">
-          <i class="fas fa-edit mr-2"></i>Edit
-        </button>
-        <button onclick="deleteFromDetail()" class="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg transition">
-          <i class="fas fa-trash mr-2"></i>Delete
-        </button>
-      </div>
+      <div id="shpDetailContent" class="p-5"></div>
     </div>
   </div>
 
+  <!-- Quotation Modal -->
+  <div id="quoModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
+      <div class="p-5 border-b flex justify-between items-center sticky top-0 bg-white z-10">
+        <h2 id="quoModalTitle" class="text-lg font-bold">New Quotation</h2>
+        <button onclick="closeModal('quoModal')" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+      </div>
+      <form id="quoForm" class="p-5 space-y-4">
+        <input type="hidden" id="quoEditId">
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-sm font-medium mb-1">Quote No.</label><input id="quoNo" required class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+          <div><label class="block text-sm font-medium mb-1">Customer</label><select id="quoCustomer" required class="w-full px-3 py-2 border rounded-lg outline-none"></select></div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-sm font-medium mb-1">Mode</label><select id="quoMode" class="w-full px-3 py-2 border rounded-lg outline-none"></select></div>
+          <div><label class="block text-sm font-medium mb-1">Incoterm</label><select id="quoIncoterm" class="w-full px-3 py-2 border rounded-lg outline-none"></select></div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-sm font-medium mb-1">Origin</label><input id="quoOrigin" required list="portList" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+          <div><label class="block text-sm font-medium mb-1">Destination</label><input id="quoDestination" required list="portList" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+        </div>
+        <div class="grid grid-cols-3 gap-3">
+          <div><label class="block text-sm font-medium mb-1">Weight (kg)</label><input type="number" step="0.01" id="quoWeight" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+          <div><label class="block text-sm font-medium mb-1">Volume (CBM)</label><input type="number" step="0.01" id="quoVolume" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+          <div><label class="block text-sm font-medium mb-1">Packages</label><input type="number" id="quoPackages" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+        </div>
+        <div><label class="block text-sm font-medium mb-1">Cargo Description</label><input id="quoCargoDesc" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+        <div class="grid grid-cols-3 gap-3">
+          <div><label class="block text-sm font-medium mb-1">Freight Cost</label><input type="number" step="0.01" id="quoFreightCost" oninput="updateQuoTotal()" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+          <div><label class="block text-sm font-medium mb-1">Other Charges</label><input type="number" step="0.01" id="quoOtherCost" oninput="updateQuoTotal()" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+          <div><label class="block text-sm font-medium mb-1">Currency</label><select id="quoCurrency" class="w-full px-3 py-2 border rounded-lg outline-none"></select></div>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3 flex justify-between items-center text-sm font-semibold">
+          <span>Total Quote Amount</span><span id="quoTotalDisplay">0.00</span>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-sm font-medium mb-1">Valid Until</label><input type="date" id="quoValidUntil" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+          <div><label class="block text-sm font-medium mb-1">Status</label><select id="quoStatus" class="w-full px-3 py-2 border rounded-lg outline-none"></select></div>
+        </div>
+        <div><label class="block text-sm font-medium mb-1">Notes</label><textarea id="quoNotes" rows="2" class="w-full px-3 py-2 border rounded-lg outline-none"></textarea></div>
+        <div class="flex gap-3 pt-2">
+          <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg"><i class="fas fa-save mr-2"></i>Save Quotation</button>
+          <button type="button" onclick="closeModal('quoModal')" class="px-6 py-2 border rounded-lg hover:bg-gray-50">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Customer Modal -->
+  <div id="custModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
+      <div class="p-5 border-b flex justify-between items-center sticky top-0 bg-white z-10">
+        <h2 id="custModalTitle" class="text-lg font-bold">New Customer</h2>
+        <button onclick="closeModal('custModal')" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+      </div>
+      <form id="custForm" class="p-5 space-y-4">
+        <input type="hidden" id="custEditId">
+        <div><label class="block text-sm font-medium mb-1">Company Name</label><input id="custCompany" required class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-sm font-medium mb-1">Contact Person</label><input id="custContact" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+          <div><label class="block text-sm font-medium mb-1">Country</label><input id="custCountry" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-sm font-medium mb-1">Email</label><input type="email" id="custEmail" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+          <div><label class="block text-sm font-medium mb-1">Phone</label><input id="custPhone" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+        </div>
+        <div><label class="block text-sm font-medium mb-1">Address</label><input id="custAddress" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+        <div><label class="block text-sm font-medium mb-1">Tax / VAT ID</label><input id="custTaxId" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+        <div><label class="block text-sm font-medium mb-1">Notes</label><textarea id="custNotes" rows="2" class="w-full px-3 py-2 border rounded-lg outline-none"></textarea></div>
+        <div class="flex gap-3 pt-2">
+          <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg"><i class="fas fa-save mr-2"></i>Save Customer</button>
+          <button type="button" onclick="closeModal('custModal')" class="px-6 py-2 border rounded-lg hover:bg-gray-50">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Document Edit Modal -->
+  <div id="docModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-md">
+      <div class="p-5 border-b flex justify-between items-center">
+        <h2 class="text-lg font-bold">Update Document</h2>
+        <button onclick="closeModal('docModal')" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+      </div>
+      <form id="docForm" class="p-5 space-y-4">
+        <input type="hidden" id="docEditId">
+        <div><label class="block text-sm font-medium mb-1">Document Type</label><input id="docType" disabled class="w-full px-3 py-2 border rounded-lg bg-gray-50 outline-none"></div>
+        <div><label class="block text-sm font-medium mb-1">Document No. / Reference</label><input id="docNo" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+        <div><label class="block text-sm font-medium mb-1">Status</label><select id="docStatus" class="w-full px-3 py-2 border rounded-lg outline-none"></select></div>
+        <div><label class="block text-sm font-medium mb-1">Issued Date</label><input type="date" id="docIssuedDate" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+        <div><label class="block text-sm font-medium mb-1">Remarks</label><textarea id="docRemarks" rows="2" class="w-full px-3 py-2 border rounded-lg outline-none"></textarea></div>
+        <div class="flex gap-3 pt-2">
+          <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg"><i class="fas fa-save mr-2"></i>Save</button>
+          <button type="button" onclick="closeModal('docModal')" class="px-6 py-2 border rounded-lg hover:bg-gray-50">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Invoice Modal -->
+  <div id="invModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50 p-4">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
+      <div class="p-5 border-b flex justify-between items-center sticky top-0 bg-white z-10">
+        <h2 id="invModalTitle" class="text-lg font-bold">New Invoice</h2>
+        <button onclick="closeModal('invModal')" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+      </div>
+      <form id="invForm" class="p-5 space-y-4">
+        <input type="hidden" id="invEditId">
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-sm font-medium mb-1">Invoice No.</label><input id="invNo" required class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+          <div><label class="block text-sm font-medium mb-1">Shipment (optional)</label><select id="invShipment" onchange="autofillInvoiceFromShipment()" class="w-full px-3 py-2 border rounded-lg outline-none"></select></div>
+        </div>
+        <div><label class="block text-sm font-medium mb-1">Customer</label><select id="invCustomer" required class="w-full px-3 py-2 border rounded-lg outline-none"></select></div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-sm font-medium mb-1">Amount</label><input type="number" step="0.01" id="invAmount" required class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+          <div><label class="block text-sm font-medium mb-1">Currency</label><select id="invCurrency" class="w-full px-3 py-2 border rounded-lg outline-none"></select></div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-sm font-medium mb-1">Issued Date</label><input type="date" id="invIssuedDate" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+          <div><label class="block text-sm font-medium mb-1">Due Date</label><input type="date" id="invDueDate" class="w-full px-3 py-2 border rounded-lg outline-none"></div>
+        </div>
+        <div><label class="block text-sm font-medium mb-1">Status</label><select id="invStatus" class="w-full px-3 py-2 border rounded-lg outline-none"></select></div>
+        <div><label class="block text-sm font-medium mb-1">Notes</label><textarea id="invNotes" rows="2" class="w-full px-3 py-2 border rounded-lg outline-none"></textarea></div>
+        <div class="flex gap-3 pt-2">
+          <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg"><i class="fas fa-save mr-2"></i>Save Invoice</button>
+          <button type="button" onclick="closeModal('invModal')" class="px-6 py-2 border rounded-lg hover:bg-gray-50">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <datalist id="portList"></datalist>
+  <datalist id="carrierList"></datalist>
+
   <!-- Toast -->
-  <div id="toast" class="fixed bottom-6 right-6 bg-gray-800 text-white px-6 py-3 rounded-lg shadow-lg hidden transform translate-y-4 opacity-0 transition-all duration-300">
+  <div id="toast" class="fixed bottom-6 right-6 bg-gray-800 text-white px-6 py-3 rounded-lg shadow-lg hidden transform translate-y-4 opacity-0 transition-all duration-300 z-50">
     <span id="toastMsg"></span>
   </div>
 
-  <script>
-    const STATUSES = [
-      { value: 'PENDING', label: '📥 Pending', color: 'status-pending' },
-      { value: 'CONFIRMED', label: '📋 Confirmed', color: 'status-confirmed' },
-      { value: 'SHIPPED', label: '🚢 Shipped', color: 'status-shipped' },
-      { value: 'IN_TRANSIT', label: '🌊 In Transit', color: 'status-in_transit' },
-      { value: 'ARRIVED', label: '🏭 Arrived', color: 'status-arrived' },
-      { value: 'CLEARED', label: '📦 Cleared', color: 'status-cleared' },
-      { value: 'DELIVERED', label: '✅ Delivered', color: 'status-delivered' },
-      { value: 'CANCELLED', label: '❌ Cancelled', color: 'status-cancelled' },
-      { value: 'ON_HOLD', label: '⚠️ On Hold', color: 'status-on_hold' }
-    ];
+  <!-- Hidden print area -->
+  <div id="printArea" class="hidden"></div>
 
-    let db;
-    let currentPage = 1;
-    const perPage = 20;
-    let detailId = null;
+<script>
+const STATUSES = [
+  { value: 'PENDING', label: 'Pending', icon: '📥', color: 'bg-amber-100 text-amber-800' },
+  { value: 'BOOKED', label: 'Booked', icon: '📝', color: 'bg-blue-100 text-blue-800' },
+  { value: 'CARGO_RECEIVED', label: 'Cargo Received', icon: '📦', color: 'bg-indigo-100 text-indigo-800' },
+  { value: 'SHIPPED', label: 'Shipped', icon: '🚢', color: 'bg-violet-100 text-violet-800' },
+  { value: 'IN_TRANSIT', label: 'In Transit', icon: '🌊', color: 'bg-cyan-100 text-cyan-800' },
+  { value: 'ARRIVED', label: 'Arrived', icon: '🏭', color: 'bg-teal-100 text-teal-800' },
+  { value: 'CUSTOMS_CLEARANCE', label: 'Customs Clearance', icon: '🛃', color: 'bg-orange-100 text-orange-800' },
+  { value: 'CLEARED', label: 'Cleared', icon: '✔️', color: 'bg-emerald-100 text-emerald-800' },
+  { value: 'DELIVERED', label: 'Delivered', icon: '✅', color: 'bg-green-100 text-green-800' },
+  { value: 'CANCELLED', label: 'Cancelled', icon: '❌', color: 'bg-red-100 text-red-800' },
+  { value: 'ON_HOLD', label: 'On Hold', icon: '⚠️', color: 'bg-purple-100 text-purple-800' }
+];
+const MODES = [
+  { value: 'SEA_FCL', label: 'Sea Freight - FCL', icon: '🚢' },
+  { value: 'SEA_LCL', label: 'Sea Freight - LCL', icon: '⛴️' },
+  { value: 'AIR', label: 'Air Freight', icon: '✈️' },
+  { value: 'RAIL', label: 'Rail Freight', icon: '🚆' },
+  { value: 'TRUCK', label: 'Land / Trucking', icon: '🚛' },
+  { value: 'MULTIMODAL', label: 'Multimodal', icon: '🔀' }
+];
+const CONTAINER_TYPES = ['N/A', '20GP', '40GP', '40HQ', '45HQ', 'LCL', 'Reefer 20', 'Reefer 40'];
+const INCOTERMS = ['EXW', 'FCA', 'FOB', 'CFR', 'CIF', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP'];
+const CURRENCIES = ['USD', 'CNY', 'EUR', 'HKD', 'GBP', 'JPY'];
+const CUSTOMS_STATUSES = [
+  { value: 'NOT_STARTED', label: 'Not Started', color: 'bg-gray-100 text-gray-700' },
+  { value: 'IN_PROGRESS', label: 'In Progress', color: 'bg-amber-100 text-amber-800' },
+  { value: 'CLEARED', label: 'Cleared', color: 'bg-green-100 text-green-800' },
+  { value: 'HELD', label: 'Held / Inspection', color: 'bg-red-100 text-red-800' }
+];
+const QUOTE_STATUSES = [
+  { value: 'DRAFT', label: 'Draft', color: 'bg-gray-100 text-gray-700' },
+  { value: 'SENT', label: 'Sent', color: 'bg-blue-100 text-blue-800' },
+  { value: 'ACCEPTED', label: 'Accepted', color: 'bg-green-100 text-green-800' },
+  { value: 'REJECTED', label: 'Rejected', color: 'bg-red-100 text-red-800' },
+  { value: 'EXPIRED', label: 'Expired', color: 'bg-orange-100 text-orange-800' },
+  { value: 'CONVERTED', label: 'Converted', color: 'bg-emerald-100 text-emerald-800' }
+];
+const DOC_STATUSES = [
+  { value: 'PENDING', label: 'Pending', color: 'bg-amber-100 text-amber-800' },
+  { value: 'RECEIVED', label: 'Received', color: 'bg-blue-100 text-blue-800' },
+  { value: 'ISSUED', label: 'Issued', color: 'bg-indigo-100 text-indigo-800' },
+  { value: 'SENT', label: 'Sent', color: 'bg-green-100 text-green-800' }
+];
+const INVOICE_STATUSES = [
+  { value: 'UNPAID', label: 'Unpaid', color: 'bg-amber-100 text-amber-800' },
+  { value: 'PARTIAL', label: 'Partially Paid', color: 'bg-blue-100 text-blue-800' },
+  { value: 'PAID', label: 'Paid', color: 'bg-green-100 text-green-800' },
+  { value: 'OVERDUE', label: 'Overdue', color: 'bg-red-100 text-red-800' },
+  { value: 'CANCELLED', label: 'Cancelled', color: 'bg-gray-100 text-gray-700' }
+];
+const DOC_TYPES_COMMON = ['Booking Confirmation', 'Commercial Invoice', 'Packing List', 'Certificate of Origin', 'Customs Declaration', 'Insurance Certificate', 'Delivery Order'];
+const PORTS = ['Shanghai', 'Ningbo-Zhoushan', 'Shenzhen', 'Guangzhou', 'Qingdao', 'Tianjin', 'Xiamen', 'Hong Kong', 'Singapore', 'Busan', 'Tokyo', 'Yokohama', 'Los Angeles', 'Long Beach', 'New York', 'Rotterdam', 'Hamburg', 'Antwerp', 'Jebel Ali (Dubai)', 'Felixstowe', 'Vancouver', 'Sydney', 'Melbourne', 'Laem Chabang (Bangkok)', 'Ho Chi Minh City', 'Jakarta', 'Nhava Sheva (Mumbai)'];
+const CARRIERS = ['Maersk', 'MSC', 'CMA CGM', 'COSCO Shipping', 'Hapag-Lloyd', 'ONE (Ocean Network Express)', 'Evergreen Line', 'Yang Ming', 'HMM', 'ZIM', 'Cathay Pacific Cargo', 'China Airlines Cargo', 'Emirates SkyCargo', 'FedEx', 'DHL', 'UPS'];
 
-    async function init() {
-      const SQL = await initSqlJs({ locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}` });
-      
-      const saved = localStorage.getItem('shipment_db');
-      if (saved) {
-        const data = new Uint8Array(JSON.parse(saved));
-        db = new SQL.Database(data);
-      } else {
-        db = new SQL.Database();
-        db.run(`
-          CREATE TABLE shipments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            shipment_no TEXT UNIQUE NOT NULL,
-            customer TEXT NOT NULL,
-            origin TEXT NOT NULL,
-            destination TEXT NOT NULL,
-            status TEXT DEFAULT 'PENDING',
-            eta TEXT,
-            remarks TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-          )
-        `);
-      }
+let db;
+let settings = { companyName: 'QI-Net Freight Forwarder', address: '', phone: '', email: '', currency: 'USD', logo: '' };
+const charts = {};
+let shpCurrentPage = 1;
+const PER_PAGE = 15;
+let detailShipmentId = null;
 
-      populateStatusSelects();
-      renderStats();
-      renderTable();
+async function init() {
+  const SQL = await initSqlJs({ locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}` });
+  const saved = localStorage.getItem('ff_db');
+  if (saved) {
+    db = new SQL.Database(new Uint8Array(JSON.parse(saved)));
+  } else {
+    db = new SQL.Database();
+    createSchema();
+  }
+  const savedSettings = localStorage.getItem('ff_settings');
+  if (savedSettings) settings = { ...settings, ...JSON.parse(savedSettings) };
+
+  populateStaticSelects();
+  applySettingsToUI();
+  bindNav();
+  document.getElementById('todayDate').textContent = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+  switchView('dashboard');
+}
+
+function createSchema() {
+  db.run(`
+    CREATE TABLE customers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, company TEXT NOT NULL, contact_person TEXT, email TEXT,
+      phone TEXT, address TEXT, country TEXT, tax_id TEXT, notes TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE quotations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, quote_no TEXT UNIQUE NOT NULL, customer_id INTEGER, mode TEXT,
+      origin TEXT, destination TEXT, cargo_desc TEXT, weight_kg REAL, volume_cbm REAL, packages INTEGER,
+      incoterm TEXT, freight_cost REAL, other_cost REAL, currency TEXT DEFAULT 'USD', valid_until TEXT,
+      status TEXT DEFAULT 'DRAFT', notes TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE shipments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, shipment_no TEXT UNIQUE NOT NULL, quotation_id INTEGER, customer_id INTEGER,
+      mode TEXT DEFAULT 'SEA_FCL', shipper TEXT, consignee TEXT, origin TEXT NOT NULL, destination TEXT NOT NULL,
+      carrier TEXT, vessel_voyage TEXT, container_no TEXT, container_type TEXT, booking_no TEXT, bl_no TEXT,
+      incoterm TEXT, cargo_desc TEXT, weight_kg REAL, volume_cbm REAL, packages INTEGER,
+      si_cutoff TEXT, cy_cutoff TEXT, vgm_cutoff TEXT, etd TEXT, eta TEXT, ata TEXT,
+      status TEXT DEFAULT 'PENDING', customs_status TEXT DEFAULT 'NOT_STARTED',
+      cost REAL, sell_price REAL, currency TEXT DEFAULT 'USD', remarks TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE shipment_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, shipment_id INTEGER NOT NULL, status TEXT, note TEXT,
+      event_date TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE documents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, shipment_id INTEGER NOT NULL, doc_type TEXT NOT NULL, doc_no TEXT,
+      status TEXT DEFAULT 'PENDING', issued_date TEXT, remarks TEXT
+    );
+    CREATE TABLE invoices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, invoice_no TEXT UNIQUE NOT NULL, shipment_id INTEGER, customer_id INTEGER,
+      amount REAL, currency TEXT DEFAULT 'USD', status TEXT DEFAULT 'UNPAID', issued_date TEXT, due_date TEXT,
+      notes TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+}
+
+function saveDB() {
+  localStorage.setItem('ff_db', JSON.stringify(Array.from(db.export())));
+}
+function saveSettings() {
+  localStorage.setItem('ff_settings', JSON.stringify(settings));
+}
+
+// ---------- Generic data helpers ----------
+function rowsOf(result) {
+  if (!result || !result.length) return [];
+  const cols = result[0].columns;
+  return result[0].values.map(v => Object.fromEntries(cols.map((c, i) => [c, v[i]])));
+}
+function all(sql, params = []) { return rowsOf(db.exec(sql, params)); }
+function one(table, id) { return all(`SELECT * FROM ${table} WHERE id=?`, [id])[0]; }
+function insertRow(table, data) {
+  const cols = Object.keys(data);
+  db.run(`INSERT INTO ${table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`, cols.map(c => data[c]));
+  const newId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
+  saveDB();
+  return newId;
+}
+function updateRow(table, id, data) {
+  const cols = Object.keys(data);
+  db.run(`UPDATE ${table} SET ${cols.map(c => `${c}=?`).join(',')} WHERE id=?`, [...cols.map(c => data[c]), id]);
+  saveDB();
+}
+function deleteRow(table, id) {
+  db.run(`DELETE FROM ${table} WHERE id=?`, [id]);
+  saveDB();
+}
+function genNo(prefix, table) {
+  const year = new Date().getFullYear();
+  const r = all(`SELECT COUNT(*) as c FROM ${table} WHERE strftime('%Y', created_at) = ?`, [String(year)]);
+  const count = (r[0]?.c || 0) + 1;
+  return `${prefix}-${year}-${String(count).padStart(4, '0')}`;
+}
+function badge(list, value) {
+  const item = list.find(x => x.value === value) || list[0];
+  return `<span class="px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${item.color}">${item.icon ? item.icon + ' ' : ''}${item.label}</span>`;
+}
+function fmtMoney(v, cur) { return `${cur || settings.currency || 'USD'} ${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; }
+function fmtDate(d) { return d ? d.slice(0, 10) : '-'; }
+function esc(s) { return (s ?? '').toString().replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+// ---------- UI plumbing ----------
+function bindNav() {
+  document.querySelectorAll('.nav-item').forEach(btn => {
+    btn.addEventListener('click', () => switchView(btn.dataset.view));
+  });
+  document.getElementById('menuToggle').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.toggle('-translate-x-full');
+    document.getElementById('sidebarOverlay').classList.toggle('hidden');
+  });
+  document.getElementById('sidebarOverlay').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.add('-translate-x-full');
+    document.getElementById('sidebarOverlay').classList.add('hidden');
+  });
+}
+const VIEW_TITLES = { dashboard: 'Dashboard', shipments: 'Shipments', quotations: 'Quotations', customers: 'Customers', documents: 'Documents', invoices: 'Invoices', track: 'Track a Shipment', reports: 'Reports', settings: 'Settings' };
+function switchView(view) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById(`view-${view}`).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  document.getElementById('viewTitle').textContent = VIEW_TITLES[view];
+  document.getElementById('sidebar').classList.add('-translate-x-full');
+  document.getElementById('sidebarOverlay').classList.add('hidden');
+  const renderers = { dashboard: renderDashboard, shipments: renderShipments, quotations: renderQuotations, customers: renderCustomers, documents: renderDocuments, invoices: renderInvoices, reports: renderReports, settings: () => {} };
+  if (renderers[view]) renderers[view]();
+}
+function closeModal(id) {
+  document.getElementById(id).classList.add('hidden');
+  document.getElementById(id).classList.remove('flex');
+}
+function openModalEl(id) {
+  document.getElementById(id).classList.remove('hidden');
+  document.getElementById(id).classList.add('flex');
+}
+function showToast(msg, type = 'success') {
+  const toast = document.getElementById('toast');
+  document.getElementById('toastMsg').textContent = msg;
+  toast.style.background = type === 'error' ? '#dc2626' : '#1f2937';
+  toast.classList.remove('hidden', 'translate-y-4', 'opacity-0');
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(() => toast.classList.add('hidden'), 3000);
+}
+function confirmDelete(msg, fn) {
+  if (confirm(msg)) fn();
+}
+
+function populateStaticSelects() {
+  const modeOpts = MODES.map(m => `<option value="${m.value}">${m.icon} ${m.label}</option>`).join('');
+  const modeOptsAll = `<option value="">All Modes</option>` + modeOpts;
+  document.getElementById('shpMode').innerHTML = modeOpts;
+  document.getElementById('quoMode').innerHTML = modeOpts;
+  document.getElementById('shpModeFilter').innerHTML = modeOptsAll;
+
+  const statusOpts = STATUSES.map(s => `<option value="${s.value}">${s.icon} ${s.label}</option>`).join('');
+  document.getElementById('shpStatus').innerHTML = statusOpts;
+  document.getElementById('shpStatusFilter').innerHTML = `<option value="">All Status</option>` + statusOpts;
+
+  document.getElementById('shpCustomsStatus').innerHTML = CUSTOMS_STATUSES.map(s => `<option value="${s.value}">${s.label}</option>`).join('');
+  document.getElementById('shpContainerType').innerHTML = CONTAINER_TYPES.map(t => `<option value="${t}">${t}</option>`).join('');
+  document.getElementById('shpIncoterm').innerHTML = `<option value="">-</option>` + INCOTERMS.map(t => `<option value="${t}">${t}</option>`).join('');
+  document.getElementById('quoIncoterm').innerHTML = `<option value="">-</option>` + INCOTERMS.map(t => `<option value="${t}">${t}</option>`).join('');
+  document.getElementById('shpCurrency').innerHTML = CURRENCIES.map(c => `<option value="${c}">${c}</option>`).join('');
+  document.getElementById('quoCurrency').innerHTML = CURRENCIES.map(c => `<option value="${c}">${c}</option>`).join('');
+  document.getElementById('invCurrency').innerHTML = CURRENCIES.map(c => `<option value="${c}">${c}</option>`).join('');
+  document.getElementById('setCurrency').innerHTML = CURRENCIES.map(c => `<option value="${c}">${c}</option>`).join('');
+
+  document.getElementById('quoStatus').innerHTML = QUOTE_STATUSES.map(s => `<option value="${s.value}">${s.label}</option>`).join('');
+  document.getElementById('docStatus').innerHTML = DOC_STATUSES.map(s => `<option value="${s.value}">${s.label}</option>`).join('');
+  document.getElementById('docStatusFilter').innerHTML = `<option value="">All Status</option>` + DOC_STATUSES.map(s => `<option value="${s.value}">${s.label}</option>`).join('');
+  document.getElementById('invStatus').innerHTML = INVOICE_STATUSES.map(s => `<option value="${s.value}">${s.label}</option>`).join('');
+
+  document.getElementById('portList').innerHTML = PORTS.map(p => `<option value="${p}">`).join('');
+  document.getElementById('carrierList').innerHTML = CARRIERS.map(c => `<option value="${c}">`).join('');
+}
+function customerOptions(selectedId) {
+  const custs = all(`SELECT id, company FROM customers ORDER BY company`);
+  if (!custs.length) return `<option value="">-- No customers yet, add one first --</option>`;
+  return `<option value="">-- Select customer --</option>` + custs.map(c => `<option value="${c.id}" ${String(c.id) === String(selectedId) ? 'selected' : ''}>${esc(c.company)}</option>`).join('');
+}
+function applySettingsToUI() {
+  document.getElementById('sidebarCompanyName').textContent = settings.companyName || 'QI-Net Freight';
+  if (settings.logo) {
+    document.getElementById('sidebarLogo').src = settings.logo;
+    document.getElementById('sidebarLogo').classList.remove('hidden');
+  }
+  document.getElementById('setCompanyName').value = settings.companyName || '';
+  document.getElementById('setAddress').value = settings.address || '';
+  document.getElementById('setPhone').value = settings.phone || '';
+  document.getElementById('setEmail').value = settings.email || '';
+  document.getElementById('setCurrency').value = settings.currency || 'USD';
+}
+
+// ================= DASHBOARD =================
+function renderDashboard() {
+  const shipments = all(`SELECT * FROM shipments`);
+  const custCount = all(`SELECT COUNT(*) c FROM customers`)[0]?.c || 0;
+  const active = shipments.filter(s => !['DELIVERED', 'CANCELLED'].includes(s.status)).length;
+  const now = new Date();
+  const deliveredThisMonth = shipments.filter(s => s.status === 'DELIVERED' && s.updated_at && new Date(s.updated_at).getMonth() === now.getMonth() && new Date(s.updated_at).getFullYear() === now.getFullYear()).length;
+  const openQuotes = all(`SELECT COUNT(*) c FROM quotations WHERE status IN ('DRAFT','SENT')`)[0]?.c || 0;
+  const outstanding = all(`SELECT COALESCE(SUM(amount),0) s FROM invoices WHERE status IN ('UNPAID','PARTIAL','OVERDUE')`)[0]?.s || 0;
+
+  document.getElementById('dashStats').innerHTML = `
+    ${statCard(shipments.length, 'Total Shipments', 'text-blue-600')}
+    ${statCard(active, 'Active Shipments', 'text-cyan-600')}
+    ${statCard(deliveredThisMonth, 'Delivered This Month', 'text-green-600')}
+    ${statCard(custCount, 'Customers', 'text-indigo-600')}
+    ${statCard(openQuotes, 'Open Quotations', 'text-amber-600')}
+  `;
+
+  renderChart('chartStatus', 'bar', STATUSES.map(s => s.label), STATUSES.map(s => shipments.filter(x => x.status === s.value).length), { indexAxis: 'y' });
+  renderChart('chartMode', 'doughnut', MODES.map(m => m.label), MODES.map(m => shipments.filter(x => x.mode === m.value).length));
+
+  const months = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: d.toLocaleString(undefined, { month: 'short', year: '2-digit' }) });
+  }
+  const volumeData = months.map(m => shipments.filter(s => (s.created_at || '').startsWith(m.key)).length);
+  renderChart('chartVolume', 'line', months.map(m => m.label), volumeData);
+
+  const custShipCounts = {};
+  shipments.forEach(s => { if (s.customer_id) custShipCounts[s.customer_id] = (custShipCounts[s.customer_id] || 0) + 1; });
+  const topCust = Object.entries(custShipCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const topCustLabels = topCust.map(([id]) => one('customers', id)?.company || 'Unknown');
+  renderChart('chartCustomers', 'bar', topCustLabels, topCust.map(([, c]) => c));
+
+  const upcoming = shipments.filter(s => s.eta && !['DELIVERED', 'CANCELLED'].includes(s.status)).filter(s => {
+    const diff = (new Date(s.eta) - now) / 86400000;
+    return diff >= -1 && diff <= 7;
+  }).sort((a, b) => new Date(a.eta) - new Date(b.eta));
+  document.getElementById('upcomingEta').innerHTML = upcoming.length ? upcoming.map(s => `
+    <div class="flex justify-between items-center border-b pb-2">
+      <div><span class="font-medium text-blue-600 cursor-pointer" onclick="switchView('shipments');setTimeout(()=>openDetail(${s.id}),50)">${esc(s.shipment_no)}</span><div class="text-xs text-gray-400">${esc(s.origin)} → ${esc(s.destination)}</div></div>
+      <span class="text-xs ${new Date(s.eta) < now ? 'text-red-500 font-semibold' : 'text-gray-600'}">${fmtDate(s.eta)}</span>
+    </div>`).join('') : `<p class="text-gray-400">No shipments arriving soon.</p>`;
+
+  const events = all(`SELECT * FROM shipment_events ORDER BY event_date DESC LIMIT 8`);
+  document.getElementById('recentActivity').innerHTML = events.length ? events.map(e => {
+    const s = one('shipments', e.shipment_id);
+    return `<div class="border-b pb-2"><span class="font-medium text-blue-600">${esc(s?.shipment_no || '#' + e.shipment_id)}</span> ${badge(STATUSES, e.status)} <div class="text-xs text-gray-400 mt-0.5">${esc(e.note || '')} · ${e.event_date ? e.event_date.slice(0, 16).replace('T', ' ') : ''}</div></div>`;
+  }).join('') : `<p class="text-gray-400">No recent activity.</p>`;
+}
+function statCard(value, label, colorClass) {
+  return `<div class="bg-white rounded-xl shadow-sm p-4"><div class="text-3xl font-bold ${colorClass}">${value}</div><div class="text-gray-500 text-sm">${label}</div></div>`;
+}
+function renderChart(canvasId, type, labels, data, extraOptions = {}) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  if (charts[canvasId]) charts[canvasId].destroy();
+  const palette = ['#2563eb', '#0891b2', '#7c3aed', '#059669', '#d97706', '#dc2626', '#4f46e5', '#0d9488', '#be185d', '#65a30d', '#9333ea'];
+  charts[canvasId] = new Chart(ctx, {
+    type,
+    data: { labels, datasets: [{ label: '', data, backgroundColor: labels.map((_, i) => palette[i % palette.length]), borderColor: type === 'line' ? '#2563eb' : undefined, tension: 0.35, fill: type === 'line' }] },
+    options: { responsive: true, plugins: { legend: { display: type === 'doughnut' } }, ...extraOptions }
+  });
+}
+
+// ================= SHIPMENTS =================
+function renderShipments() {
+  const search = document.getElementById('shpSearch').value.trim();
+  const modeF = document.getElementById('shpModeFilter').value;
+  const statusF = document.getElementById('shpStatusFilter').value;
+  const [sortCol, sortDir] = document.getElementById('shpSort').value.split('-');
+
+  let where = [], params = [];
+  if (search) { where.push(`(shipment_no LIKE ? OR bl_no LIKE ? OR container_no LIKE ?)`); params.push(`%${search}%`, `%${search}%`, `%${search}%`); }
+  if (modeF) { where.push(`mode = ?`); params.push(modeF); }
+  if (statusF) { where.push(`status = ?`); params.push(statusF); }
+  const whereSQL = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+  let rows = all(`SELECT * FROM shipments ${whereSQL} ORDER BY ${sortCol} ${sortDir}`, params);
+  if (search) {
+    const term = search.toLowerCase();
+    rows = rows.filter(r => true); // placeholder to keep SQL LIKE results; customer name filter below merges
+  }
+  // also allow searching by customer company name
+  if (search) {
+    const term = search.toLowerCase();
+    const already = new Set(rows.map(r => r.id));
+    const byCustomer = all(`SELECT s.* FROM shipments s JOIN customers c ON c.id=s.customer_id WHERE c.company LIKE ? ${modeF ? 'AND s.mode=?' : ''} ${statusF ? 'AND s.status=?' : ''}`, [`%${search}%`, ...(modeF ? [modeF] : []), ...(statusF ? [statusF] : [])]);
+    byCustomer.forEach(r => { if (!already.has(r.id)) { rows.push(r); already.add(r.id); } });
+  }
+
+  const total = rows.length;
+  const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
+  if (shpCurrentPage > totalPages) shpCurrentPage = totalPages;
+  const pageRows = rows.slice((shpCurrentPage - 1) * PER_PAGE, shpCurrentPage * PER_PAGE);
+
+  const tbody = document.getElementById('shpTableBody');
+  const empty = document.getElementById('shpEmpty');
+  if (!pageRows.length) {
+    tbody.innerHTML = '';
+    empty.classList.remove('hidden');
+    document.getElementById('shpPagination').innerHTML = '';
+    return;
+  }
+  empty.classList.add('hidden');
+  tbody.innerHTML = pageRows.map(r => {
+    const cust = r.customer_id ? one('customers', r.customer_id) : null;
+    const mode = MODES.find(m => m.value === r.mode) || MODES[0];
+    return `
+      <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetail(${r.id})">
+        <td class="px-4 py-3 font-medium text-blue-600">${esc(r.shipment_no)}</td>
+        <td class="px-4 py-3">${mode.icon} <span class="text-xs">${mode.label.replace('Sea Freight - ', '')}</span></td>
+        <td class="px-4 py-3">${esc(cust?.company || '-')}</td>
+        <td class="px-4 py-3 text-sm text-gray-600">${esc(r.origin)} → ${esc(r.destination)}</td>
+        <td class="px-4 py-3 text-sm text-gray-600">${esc(r.carrier || '-')}${r.vessel_voyage ? ' / ' + esc(r.vessel_voyage) : ''}</td>
+        <td class="px-4 py-3">${badge(STATUSES, r.status)}</td>
+        <td class="px-4 py-3 text-sm ${r.eta && new Date(r.eta) < new Date() && !['DELIVERED', 'CANCELLED'].includes(r.status) ? 'text-red-500 font-medium' : 'text-gray-600'}">${fmtDate(r.eta)}</td>
+        <td class="px-4 py-3 text-center">
+          <button onclick="event.stopPropagation(); openShipmentModal(${r.id})" class="text-blue-500 hover:text-blue-700 mx-1" title="Edit"><i class="fas fa-edit"></i></button>
+          <button onclick="event.stopPropagation(); deleteShipment(${r.id})" class="text-red-500 hover:text-red-700 mx-1" title="Delete"><i class="fas fa-trash"></i></button>
+        </td>
+      </tr>`;
+  }).join('');
+
+  document.getElementById('shpPagination').innerHTML = `
+    <span>Showing ${(shpCurrentPage - 1) * PER_PAGE + 1}-${Math.min(shpCurrentPage * PER_PAGE, total)} of ${total}</span>
+    <div class="flex gap-1">
+      <button onclick="shpCurrentPage--;renderShipments()" ${shpCurrentPage === 1 ? 'disabled' : ''} class="px-3 py-1 rounded border hover:bg-gray-50 disabled:opacity-40">Prev</button>
+      <span class="px-3 py-1">Page ${shpCurrentPage} / ${totalPages}</span>
+      <button onclick="shpCurrentPage++;renderShipments()" ${shpCurrentPage >= totalPages ? 'disabled' : ''} class="px-3 py-1 rounded border hover:bg-gray-50 disabled:opacity-40">Next</button>
+    </div>`;
+}
+
+function openShipmentModal(id, prefill) {
+  document.getElementById('shpForm').reset();
+  document.getElementById('shpCustomer').innerHTML = customerOptions(prefill?.customer_id);
+  if (id) {
+    const r = one('shipments', id);
+    document.getElementById('shpModalTitle').textContent = 'Edit Shipment';
+    document.getElementById('shpEditId').value = id;
+    document.getElementById('shpNo').value = r.shipment_no;
+    document.getElementById('shpMode').value = r.mode;
+    document.getElementById('shpCustomer').value = r.customer_id || '';
+    document.getElementById('shpIncoterm').value = r.incoterm || '';
+    document.getElementById('shpShipper').value = r.shipper || '';
+    document.getElementById('shpConsignee').value = r.consignee || '';
+    document.getElementById('shpOrigin').value = r.origin || '';
+    document.getElementById('shpDestination').value = r.destination || '';
+    document.getElementById('shpCarrier').value = r.carrier || '';
+    document.getElementById('shpVesselVoyage').value = r.vessel_voyage || '';
+    document.getElementById('shpContainerNo').value = r.container_no || '';
+    document.getElementById('shpContainerType').value = r.container_type || 'N/A';
+    document.getElementById('shpBookingNo').value = r.booking_no || '';
+    document.getElementById('shpBlNo').value = r.bl_no || '';
+    document.getElementById('shpWeight').value = r.weight_kg || '';
+    document.getElementById('shpVolume').value = r.volume_cbm || '';
+    document.getElementById('shpPackages').value = r.packages || '';
+    document.getElementById('shpCargoDesc').value = r.cargo_desc || '';
+    document.getElementById('shpSiCutoff').value = r.si_cutoff || '';
+    document.getElementById('shpCyCutoff').value = r.cy_cutoff || '';
+    document.getElementById('shpVgmCutoff').value = r.vgm_cutoff || '';
+    document.getElementById('shpEtd').value = r.etd || '';
+    document.getElementById('shpEta').value = r.eta || '';
+    document.getElementById('shpAta').value = r.ata || '';
+    document.getElementById('shpStatus').value = r.status;
+    document.getElementById('shpCustomsStatus').value = r.customs_status;
+    document.getElementById('shpCost').value = r.cost || '';
+    document.getElementById('shpSellPrice').value = r.sell_price || '';
+    document.getElementById('shpCurrency').value = r.currency || settings.currency;
+    document.getElementById('shpRemarks').value = r.remarks || '';
+  } else {
+    document.getElementById('shpModalTitle').textContent = 'New Shipment';
+    document.getElementById('shpEditId').value = '';
+    document.getElementById('shpNo').value = genNo('SHP', 'shipments');
+    document.getElementById('shpStatus').value = 'PENDING';
+    document.getElementById('shpCustomsStatus').value = 'NOT_STARTED';
+    document.getElementById('shpContainerType').value = 'N/A';
+    document.getElementById('shpCurrency').value = settings.currency || 'USD';
+    if (prefill) {
+      document.getElementById('shpMode').value = prefill.mode || 'SEA_FCL';
+      document.getElementById('shpOrigin').value = prefill.origin || '';
+      document.getElementById('shpDestination').value = prefill.destination || '';
+      document.getElementById('shpIncoterm').value = prefill.incoterm || '';
+      document.getElementById('shpCargoDesc').value = prefill.cargo_desc || '';
+      document.getElementById('shpWeight').value = prefill.weight_kg || '';
+      document.getElementById('shpVolume').value = prefill.volume_cbm || '';
+      document.getElementById('shpPackages').value = prefill.packages || '';
+      document.getElementById('shpSellPrice').value = (Number(prefill.freight_cost || 0) + Number(prefill.other_cost || 0)) || '';
+      document.getElementById('shpCurrency').value = prefill.currency || settings.currency || 'USD';
+      document.getElementById('shpForm').dataset.quotationId = prefill.quotationId || '';
+    } else {
+      delete document.getElementById('shpForm').dataset.quotationId;
     }
+  }
+  openModalEl('shpModal');
+}
 
-    function saveDB() {
-      const data = db.export();
-      const arr = Array.from(data);
-      localStorage.setItem('shipment_db', JSON.stringify(arr));
-    }
+function ensureDocuments(shipmentId, mode) {
+  const transportDoc = mode === 'AIR' ? 'Air Waybill (AWB)' : (mode === 'TRUCK' ? 'CMR / Road Waybill' : 'Bill of Lading (B/L)');
+  const types = [transportDoc, ...DOC_TYPES_COMMON];
+  types.forEach(t => insertRow('documents', { shipment_id: shipmentId, doc_type: t, doc_no: '', status: 'PENDING', issued_date: '', remarks: '' }));
+}
+function logEvent(shipmentId, status, note) {
+  insertRow('shipment_events', { shipment_id: shipmentId, status, note: note || '', event_date: new Date().toISOString() });
+}
 
-    function populateStatusSelects() {
-      const formSelect = document.getElementById('status');
-      const filterSelect = document.getElementById('statusFilter');
-      
-      let formHTML = '', filterHTML = '<option value="">All Status</option>';
-      STATUSES.forEach(s => {
-        formHTML += `<option value="${s.value}">${s.label}</option>`;
-        filterHTML += `<option value="${s.value}">${s.label}</option>`;
-      });
-      formSelect.innerHTML = formHTML;
-      filterSelect.innerHTML = filterHTML;
-    }
-
-    function getStatusBadge(status) {
-      const s = STATUSES.find(x => x.value === status) || STATUSES[0];
-      return `<span class="px-3 py-1 rounded-full text-xs font-semibold ${s.color}">${s.label}</span>`;
-    }
-
-    function renderStats() {
-      const result = db.exec(`SELECT status, COUNT(*) as cnt FROM shipments GROUP BY status`);
-      const counts = { total: 0 };
-      STATUSES.forEach(s => counts[s.value] = 0);
-      
-      if (result.length) {
-        result[0].values.forEach(row => {
-          counts[row[0]] = parseInt(row[1]);
-          counts.total += parseInt(row[1]);
-        });
-      }
-
-      const statsHTML = `
-        <div class="bg-white rounded-xl shadow-sm p-4">
-          <div class="text-3xl font-bold text-blue-600">${counts.total}</div>
-          <div class="text-gray-500 text-sm">Total Shipments</div>
-        </div>
-        <div class="bg-white rounded-xl shadow-sm p-4">
-          <div class="text-3xl font-bold text-cyan-600">${counts.IN_TRANSIT + counts.SHIPPED}</div>
-          <div class="text-gray-500 text-sm">In Transit</div>
-        </div>
-        <div class="bg-white rounded-xl shadow-sm p-4">
-          <div class="text-3xl font-bold text-green-600">${counts.DELIVERED + counts.CLEARED}</div>
-          <div class="text-gray-500 text-sm">Completed</div>
-        </div>
-        <div class="bg-white rounded-xl shadow-sm p-4">
-          <div class="text-3xl font-bold text-yellow-600">${counts.PENDING + counts.CONFIRMED}</div>
-          <div class="text-gray-500 text-sm">Pending / Confirmed</div>
-        </div>
-        <div class="bg-white rounded-xl shadow-sm p-4">
-          <div class="text-3xl font-bold text-red-600">${counts.CANCELLED + counts.ON_HOLD}</div>
-          <div class="text-gray-500 text-sm">Cancelled / On Hold</div>
-        </div>
-      `;
-      document.getElementById('stats').innerHTML = statsHTML;
-    }
-
-    function renderTable() {
-      const search = document.getElementById('searchInput').value.trim();
-      const statusFilter = document.getElementById('statusFilter').value;
-      const [sortCol, sortDir] = document.getElementById('sortBy').value.split('-');
-
-      let where = [];
-      let params = [];
-      if (search) {
-        where.push(`(shipment_no LIKE ? OR customer LIKE ?)`);
-        params.push(`%${search}%`, `%${search}%`);
-      }
-      if (statusFilter) {
-        where.push(`status = ?`);
-        params.push(statusFilter);
-      }
-      const whereSQL = where.length ? `WHERE ${where.join(' AND ')}` : '';
-
-      const order = `${sortCol} ${sortDir}`;
-
-      const countResult = db.exec(`SELECT COUNT(*) FROM shipments ${whereSQL}`, params);
-      const total = countResult[0]?.values[0]?[0] || 0;
-      const totalPages = Math.ceil(total / perPage);
-      const offset = (currentPage - 1) * perPage;
-
-      const data = db.exec(`SELECT * FROM shipments ${whereSQL} ORDER BY ${order} LIMIT ${perPage} OFFSET ${offset}`, params);
-
-      const tbody = document.getElementById('tableBody');
-      const empty = document.getElementById('emptyState');
-
-      if (!data.length || !data[0].values.length) {
-        tbody.innerHTML = '';
-        empty.classList.remove('hidden');
-        document.getElementById('pagination').innerHTML = '';
-        return;
-      }
-
-      empty.classList.add('hidden');
-      const cols = data[0].columns;
-      const rows = data[0].values;
-
-      tbody.innerHTML = rows.map(row => {
-        const r = Object.fromEntries(cols.map((c, i) => [c, row[i]]));
-        return `
-          <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDetail(${r.id})">
-            <td class="px-4 py-3 font-medium text-blue-600">${r.shipment_no}</td>
-            <td class="px-4 py-3">${r.customer}</td>
-            <td class="px-4 py-3 text-sm text-gray-600">${r.origin} → ${r.destination}</td>
-            <td class="px-4 py-3">${getStatusBadge(r.status)}</td>
-            <td class="px-4 py-3 text-sm ${r.eta ? (new Date(r.eta) < new Date() ? 'text-red-500 font-medium' : 'text-gray-600') : 'text-gray-400'}">${r.eta || '-'}</td>
-            <td class="px-4 py-3 text-sm text-gray-400">${r.updated_at ? r.updated_at.slice(0,10) : '-'}</td>
-            <td class="px-4 py-3 text-center">
-              <button onclick="event.stopPropagation(); openEditModal(${r.id})" class="text-blue-500 hover:text-blue-700 mx-1" title="Edit"><i class="fas fa-edit"></i></button>
-              <button onclick="event.stopPropagation(); deleteShipment(${r.id})" class="text-red-500 hover:text-red-700 mx-1" title="Delete"><i class="fas fa-trash"></i></button>
-            </td>
-          </tr>
-        `;
-      }).join('');
-
-      const pagHTML = `
-        <span>Showing ${Math.min(offset+1, total)}-${Math.min(offset+perPage, total)} of ${total}</span>
-        <div class="flex gap-1">
-          <button onclick="changePage(${currentPage-1})" ${currentPage===1?'disabled':''} class="px-3 py-1 rounded border hover:bg-gray-50 disabled:opacity-40">Prev</button>
-          ${Array.from({length: Math.min(5, totalPages)}, (_, i) => {
-            const p = Math.max(1, Math.min(totalPages - 4, currentPage - 2)) + i;
-            return `<button onclick="changePage(${p})" class="px-3 py-1 rounded border ${p===currentPage?'bg-blue-600 text-white':'hover:bg-gray-50'}">${p}</button>`;
-          }).join('')}
-          <button onclick="changePage(${currentPage+1})" ${currentPage>=totalPages?'disabled':''} class="px-3 py-1 rounded border hover:bg-gray-50 disabled:opacity-40">Next</button>
-        </div>
-      `;
-      document.getElementById('pagination').innerHTML = pagHTML;
-    }
-
-    function changePage(p) {
-      currentPage = p;
-      renderTable();
-    }
-
-    function openAddModal() {
-      document.getElementById('modalTitle').textContent = 'New Shipment';
-      document.getElementById('editId').value = '';
-      document.getElementById('shipmentForm').reset();
-      document.getElementById('status').value = 'PENDING';
-      const no = 'SHP-' + new Date().getFullYear() + '-' + String(Math.floor(Math.random()*9000)+1000).padStart(4,'0');
-      document.getElementById('shipmentNo').value = no;
-      document.getElementById('modal').classList.remove('hidden');
-      document.getElementById('modal').classList.add('flex');
-    }
-
-    function openEditModal(id) {
-      const data = db.exec(`SELECT * FROM shipments WHERE id = ?`, [id]);
-      if (!data.length) return;
-      const cols = data[0].columns;
-      const row = Object.fromEntries(cols.map((c, i) => [c, data[0].values[0][i]]));
-
-      document.getElementById('modalTitle').textContent = 'Edit Shipment';
-      document.getElementById('editId').value = id;
-      document.getElementById('shipmentNo').value = row.shipment_no;
-      document.getElementById('customer').value = row.customer;
-      document.getElementById('origin').value = row.origin;
-      document.getElementById('destination').value = row.destination;
-      document.getElementById('status').value = row.status;
-      document.getElementById('eta').value = row.eta || '';
-      document.getElementById('remarks').value = row.remarks || '';
-
-      document.getElementById('modal').classList.remove('hidden');
-      document.getElementById('modal').classList.add('flex');
-    }
-
-    function closeModal() {
-      document.getElementById('modal').classList.add('hidden');
-      document.getElementById('modal').classList.remove('flex');
-    }
-
-    function openDetail(id) {
-      detailId = id;
-      const data = db.exec(`SELECT * FROM shipments WHERE id = ?`, [id]);
-      if (!data.length) return;
-      const cols = data[0].columns;
-      const r = Object.fromEntries(cols.map((c, i) => [c, data[0].values[0][i]]));
-
-      const content = document.getElementById('detailContent');
-      content.innerHTML = `
-        <div class="space-y-3">
-          <div class="flex justify-between items-center">
-            <span class="text-2xl font-bold text-blue-600">${r.shipment_no}</span>
-            ${getStatusBadge(r.status)}
-          </div>
-          <div class="grid grid-cols-2 gap-4 text-sm">
-            <div><span class="text-gray-500">Customer</span><div class="font-medium">${r.customer}</div></div>
-            <div><span class="text-gray-500">ETA</span><div class="font-medium ${r.eta?(new Date(r.eta)<new Date()?'text-red-500':'text-gray-800'):'text-gray-400'}">${r.eta || 'Not set'}</div></div>
-            <div><span class="text-gray-500">Origin</span><div class="font-medium">${r.origin}</div></div>
-            <div><span class="text-gray-500">Destination</span><div class="font-medium">${r.destination}</div></div>
-            <div><span class="text-gray-500">Created</span><div class="font-medium">${r.created_at ? r.created_at.slice(0,16).replace('T',' ') : '-'}</div></div>
-            <div><span class="text-gray-500">Last Updated</span><div class="font-medium">${r.updated_at ? r.updated_at.slice(0,16).replace('T',' ') : '-'}</div></div>
-          </div>
-          ${r.remarks ? `<div class="bg-gray-50 rounded-lg p-3"><span class="text-gray-500 text-sm">Remarks</span><div class="mt-1">${r.remarks}</div></div>` : ''}
-        </div>
-      `;
-      document.getElementById('detailModal').classList.remove('hidden');
-      document.getElementById('detailModal').classList.add('flex');
-    }
-
-    function closeDetailModal() {
-      document.getElementById('detailModal').classList.add('hidden');
-      document.getElementById('detailModal').classList.remove('flex');
-      detailId = null;
-    }
-
-    function editFromDetail() {
-      closeDetailModal();
-      openEditModal(detailId);
-    }
-
-    function deleteFromDetail() {
-      closeDetailModal();
-      deleteShipment(detailId);
-    }
-
-    document.getElementById('shipmentForm').addEventListener('submit', function(e) {
-      e.preventDefault();
-      const id = document.getElementById('editId').value;
-      const shipment_no = document.getElementById('shipmentNo').value.trim();
-      const customer = document.getElementById('customer').value.trim();
-      const origin = document.getElementById('origin').value.trim();
-      const destination = document.getElementById('destination').value.trim();
-      const status = document.getElementById('status').value;
-      const eta = document.getElementById('eta').value;
-      const remarks = document.getElementById('remarks').value.trim();
-
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('shpForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const id = document.getElementById('shpEditId').value;
+    const data = {
+      shipment_no: document.getElementById('shpNo').value.trim(),
+      mode: document.getElementById('shpMode').value,
+      customer_id: document.getElementById('shpCustomer').value || null,
+      incoterm: document.getElementById('shpIncoterm').value,
+      shipper: document.getElementById('shpShipper').value.trim(),
+      consignee: document.getElementById('shpConsignee').value.trim(),
+      origin: document.getElementById('shpOrigin').value.trim(),
+      destination: document.getElementById('shpDestination').value.trim(),
+      carrier: document.getElementById('shpCarrier').value.trim(),
+      vessel_voyage: document.getElementById('shpVesselVoyage').value.trim(),
+      container_no: document.getElementById('shpContainerNo').value.trim(),
+      container_type: document.getElementById('shpContainerType').value,
+      booking_no: document.getElementById('shpBookingNo').value.trim(),
+      bl_no: document.getElementById('shpBlNo').value.trim(),
+      weight_kg: document.getElementById('shpWeight').value || null,
+      volume_cbm: document.getElementById('shpVolume').value || null,
+      packages: document.getElementById('shpPackages').value || null,
+      cargo_desc: document.getElementById('shpCargoDesc').value.trim(),
+      si_cutoff: document.getElementById('shpSiCutoff').value || null,
+      cy_cutoff: document.getElementById('shpCyCutoff').value || null,
+      vgm_cutoff: document.getElementById('shpVgmCutoff').value || null,
+      etd: document.getElementById('shpEtd').value || null,
+      eta: document.getElementById('shpEta').value || null,
+      ata: document.getElementById('shpAta').value || null,
+      status: document.getElementById('shpStatus').value,
+      customs_status: document.getElementById('shpCustomsStatus').value,
+      cost: document.getElementById('shpCost').value || null,
+      sell_price: document.getElementById('shpSellPrice').value || null,
+      currency: document.getElementById('shpCurrency').value,
+      remarks: document.getElementById('shpRemarks').value.trim(),
+      updated_at: new Date().toISOString()
+    };
+    try {
       if (id) {
-        db.run(`UPDATE shipments SET shipment_no=?, customer=?, origin=?, destination=?, status=?, eta=?, remarks=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-          [shipment_no, customer, origin, destination, status, eta||null, remarks||null, id]);
-        showToast('Shipment updated successfully');
+        const prev = one('shipments', id);
+        updateRow('shipments', id, data);
+        if (prev.status !== data.status) logEvent(id, data.status, 'Status updated');
+        showToast('Shipment updated');
       } else {
-        try {
-          db.run(`INSERT INTO shipments (shipment_no, customer, origin, destination, status, eta, remarks) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [shipment_no, customer, origin, destination, status, eta||null, remarks||null]);
-          showToast('Shipment added successfully');
-        } catch(e) {
-          if (e.message.includes('UNIQUE')) {
-            showToast('Shipment number already exists!', 'error');
-            return;
-          }
-        }
+        const quotationId = document.getElementById('shpForm').dataset.quotationId;
+        data.quotation_id = quotationId || null;
+        data.created_at = new Date().toISOString();
+        const newId = insertRow('shipments', data);
+        ensureDocuments(newId, data.mode);
+        logEvent(newId, data.status, 'Shipment created');
+        showToast('Shipment created');
       }
+    } catch (err) {
+      if (String(err.message).includes('UNIQUE')) { showToast('Shipment number already exists!', 'error'); return; }
+      showToast('Error saving shipment', 'error'); return;
+    }
+    closeModal('shpModal');
+    renderShipments();
+  });
+});
 
-      saveDB();
-      closeModal();
-      renderStats();
-      renderTable();
+function deleteShipment(id) {
+  confirmDelete('Delete this shipment and all related documents/events? This cannot be undone.', () => {
+    db.run(`DELETE FROM shipment_events WHERE shipment_id=?`, [id]);
+    db.run(`DELETE FROM documents WHERE shipment_id=?`, [id]);
+    deleteRow('shipments', id);
+    closeModal('shpDetailModal');
+    renderShipments();
+    showToast('Shipment deleted');
+  });
+}
+
+function openDetail(id) {
+  detailShipmentId = id;
+  const r = one('shipments', id);
+  if (!r) return;
+  const cust = r.customer_id ? one('customers', r.customer_id) : null;
+  const mode = MODES.find(m => m.value === r.mode) || MODES[0];
+  const events = all(`SELECT * FROM shipment_events WHERE shipment_id=? ORDER BY event_date DESC`, [id]);
+  const docs = all(`SELECT * FROM documents WHERE shipment_id=? ORDER BY id`, [id]);
+
+  document.getElementById('shpDetailContent').innerHTML = `
+    <div class="flex justify-between items-start flex-wrap gap-2 mb-4">
+      <div>
+        <div class="text-2xl font-bold text-blue-600">${esc(r.shipment_no)}</div>
+        <div class="text-sm text-gray-500">${mode.icon} ${mode.label} · ${esc(cust?.company || 'No customer')}</div>
+      </div>
+      ${badge(STATUSES, r.status)}
+    </div>
+    <div class="grid grid-cols-2 gap-4 text-sm mb-4">
+      <div><span class="text-gray-500">Route</span><div class="font-medium">${esc(r.origin)} → ${esc(r.destination)}</div></div>
+      <div><span class="text-gray-500">Carrier / Vessel</span><div class="font-medium">${esc(r.carrier || '-')} ${esc(r.vessel_voyage || '')}</div></div>
+      <div><span class="text-gray-500">Container / Booking</span><div class="font-medium">${esc(r.container_no || '-')} (${esc(r.container_type || 'N/A')}) · ${esc(r.booking_no || '-')}</div></div>
+      <div><span class="text-gray-500">B/L or AWB No.</span><div class="font-medium">${esc(r.bl_no || '-')}</div></div>
+      <div><span class="text-gray-500">Cargo</span><div class="font-medium">${esc(r.cargo_desc || '-')} · ${r.weight_kg || 0}kg · ${r.volume_cbm || 0}CBM · ${r.packages || 0}pkgs</div></div>
+      <div><span class="text-gray-500">Incoterm</span><div class="font-medium">${esc(r.incoterm || '-')}</div></div>
+      <div><span class="text-gray-500">ETD / ETA / ATA</span><div class="font-medium">${fmtDate(r.etd)} / ${fmtDate(r.eta)} / ${fmtDate(r.ata)}</div></div>
+      <div><span class="text-gray-500">Customs Status</span><div>${badge(CUSTOMS_STATUSES, r.customs_status)}</div></div>
+      <div><span class="text-gray-500">Cost / Sell Price</span><div class="font-medium">${fmtMoney(r.cost, r.currency)} / ${fmtMoney(r.sell_price, r.currency)}</div></div>
+      <div><span class="text-gray-500">Cutoffs (SI / CY / VGM)</span><div class="font-medium">${fmtDate(r.si_cutoff)} / ${fmtDate(r.cy_cutoff)} / ${fmtDate(r.vgm_cutoff)}</div></div>
+    </div>
+    ${r.remarks ? `<div class="bg-gray-50 rounded-lg p-3 text-sm mb-4"><span class="text-gray-500">Remarks</span><div class="mt-1">${esc(r.remarks)}</div></div>` : ''}
+
+    <div class="mb-4">
+      <h3 class="font-semibold text-sm mb-2"><i class="fas fa-folder-open text-blue-500 mr-1"></i>Documents Checklist</h3>
+      <div class="space-y-1 text-sm">
+        ${docs.map(d => `<div class="flex justify-between items-center border-b py-1.5">
+          <span>${esc(d.doc_type)}</span>
+          <span class="flex items-center gap-2">${badge(DOC_STATUSES, d.status)}<button onclick="openDocModal(${d.id})" class="text-gray-400 hover:text-blue-600"><i class="fas fa-pen text-xs"></i></button></span>
+        </div>`).join('') || '<p class="text-gray-400">No documents.</p>'}
+      </div>
+    </div>
+
+    <div class="mb-4">
+      <h3 class="font-semibold text-sm mb-2"><i class="fas fa-timeline text-blue-500 mr-1"></i>Status Timeline</h3>
+      <div class="space-y-2 max-h-40 overflow-y-auto text-sm">
+        ${events.map(e => `<div class="flex justify-between border-b pb-1"><span>${badge(STATUSES, e.status)} <span class="text-gray-400 text-xs">${esc(e.note || '')}</span></span><span class="text-xs text-gray-400">${e.event_date ? e.event_date.slice(0, 16).replace('T', ' ') : ''}</span></div>`).join('') || '<p class="text-gray-400">No history yet.</p>'}
+      </div>
+      <div class="flex gap-2 mt-2">
+        <input id="detailEventNote" placeholder="Add a timeline note..." class="flex-1 px-3 py-1.5 border rounded-lg text-sm outline-none">
+        <button onclick="addTimelineNote(${id})" class="bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg text-sm">Add</button>
+      </div>
+    </div>
+
+    <div class="flex flex-wrap gap-2 pt-2 border-t">
+      <button onclick="closeModal('shpDetailModal');openShipmentModal(${id})" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm"><i class="fas fa-edit mr-1"></i>Edit</button>
+      <button onclick="printShipment(${id})" class="bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg text-sm"><i class="fas fa-print mr-1"></i>Print</button>
+      <button onclick="closeModal('shpDetailModal');openInvoiceModal(null,${id})" class="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 px-4 py-2 rounded-lg text-sm"><i class="fas fa-file-invoice mr-1"></i>Generate Invoice</button>
+      <button onclick="deleteShipment(${id})" class="bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-lg text-sm ml-auto"><i class="fas fa-trash mr-1"></i>Delete</button>
+    </div>
+  `;
+  openModalEl('shpDetailModal');
+}
+function addTimelineNote(shipmentId) {
+  const note = document.getElementById('detailEventNote').value.trim();
+  if (!note) return;
+  const r = one('shipments', shipmentId);
+  logEvent(shipmentId, r.status, note);
+  openDetail(shipmentId);
+}
+
+// ================= QUOTATIONS =================
+function renderQuotations() {
+  const search = document.getElementById('quoSearch').value.trim();
+  let rows = all(`SELECT q.*, c.company as cust_name FROM quotations q LEFT JOIN customers c ON c.id=q.customer_id ORDER BY q.created_at DESC`);
+  if (search) {
+    const t = search.toLowerCase();
+    rows = rows.filter(r => (r.quote_no || '').toLowerCase().includes(t) || (r.cust_name || '').toLowerCase().includes(t));
+  }
+  const tbody = document.getElementById('quoTableBody');
+  const empty = document.getElementById('quoEmpty');
+  if (!rows.length) { tbody.innerHTML = ''; empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+  tbody.innerHTML = rows.map(r => {
+    const mode = MODES.find(m => m.value === r.mode) || MODES[0];
+    const total = Number(r.freight_cost || 0) + Number(r.other_cost || 0);
+    return `<tr class="hover:bg-gray-50">
+      <td class="px-4 py-3 font-medium text-blue-600">${esc(r.quote_no)}</td>
+      <td class="px-4 py-3">${esc(r.cust_name || '-')}</td>
+      <td class="px-4 py-3 text-sm">${mode.icon} ${mode.label.replace('Sea Freight - ', '')}</td>
+      <td class="px-4 py-3 text-sm text-gray-600">${esc(r.origin)} → ${esc(r.destination)}</td>
+      <td class="px-4 py-3 text-right font-medium">${fmtMoney(total, r.currency)}</td>
+      <td class="px-4 py-3 text-sm">${fmtDate(r.valid_until)}</td>
+      <td class="px-4 py-3">${badge(QUOTE_STATUSES, r.status)}</td>
+      <td class="px-4 py-3 text-center whitespace-nowrap">
+        <button onclick="convertQuotation(${r.id})" title="Convert to Shipment" class="text-emerald-500 hover:text-emerald-700 mx-1"><i class="fas fa-right-left"></i></button>
+        <button onclick="printQuotation(${r.id})" title="Print" class="text-gray-500 hover:text-gray-700 mx-1"><i class="fas fa-print"></i></button>
+        <button onclick="openQuotationModal(${r.id})" title="Edit" class="text-blue-500 hover:text-blue-700 mx-1"><i class="fas fa-edit"></i></button>
+        <button onclick="deleteQuotation(${r.id})" title="Delete" class="text-red-500 hover:text-red-700 mx-1"><i class="fas fa-trash"></i></button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+function updateQuoTotal() {
+  const total = Number(document.getElementById('quoFreightCost').value || 0) + Number(document.getElementById('quoOtherCost').value || 0);
+  document.getElementById('quoTotalDisplay').textContent = fmtMoney(total, document.getElementById('quoCurrency').value);
+}
+function openQuotationModal(id) {
+  document.getElementById('quoForm').reset();
+  document.getElementById('quoCustomer').innerHTML = customerOptions();
+  if (id) {
+    const r = one('quotations', id);
+    document.getElementById('quoModalTitle').textContent = 'Edit Quotation';
+    document.getElementById('quoEditId').value = id;
+    document.getElementById('quoNo').value = r.quote_no;
+    document.getElementById('quoCustomer').value = r.customer_id || '';
+    document.getElementById('quoMode').value = r.mode;
+    document.getElementById('quoIncoterm').value = r.incoterm || '';
+    document.getElementById('quoOrigin').value = r.origin || '';
+    document.getElementById('quoDestination').value = r.destination || '';
+    document.getElementById('quoWeight').value = r.weight_kg || '';
+    document.getElementById('quoVolume').value = r.volume_cbm || '';
+    document.getElementById('quoPackages').value = r.packages || '';
+    document.getElementById('quoCargoDesc').value = r.cargo_desc || '';
+    document.getElementById('quoFreightCost').value = r.freight_cost || '';
+    document.getElementById('quoOtherCost').value = r.other_cost || '';
+    document.getElementById('quoCurrency').value = r.currency || settings.currency;
+    document.getElementById('quoValidUntil').value = r.valid_until || '';
+    document.getElementById('quoStatus').value = r.status;
+    document.getElementById('quoNotes').value = r.notes || '';
+  } else {
+    document.getElementById('quoModalTitle').textContent = 'New Quotation';
+    document.getElementById('quoEditId').value = '';
+    document.getElementById('quoNo').value = genNo('QUO', 'quotations');
+    document.getElementById('quoStatus').value = 'DRAFT';
+    document.getElementById('quoCurrency').value = settings.currency || 'USD';
+  }
+  updateQuoTotal();
+  openModalEl('quoModal');
+}
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('quoForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const id = document.getElementById('quoEditId').value;
+    const data = {
+      quote_no: document.getElementById('quoNo').value.trim(),
+      customer_id: document.getElementById('quoCustomer').value || null,
+      mode: document.getElementById('quoMode').value,
+      incoterm: document.getElementById('quoIncoterm').value,
+      origin: document.getElementById('quoOrigin').value.trim(),
+      destination: document.getElementById('quoDestination').value.trim(),
+      weight_kg: document.getElementById('quoWeight').value || null,
+      volume_cbm: document.getElementById('quoVolume').value || null,
+      packages: document.getElementById('quoPackages').value || null,
+      cargo_desc: document.getElementById('quoCargoDesc').value.trim(),
+      freight_cost: document.getElementById('quoFreightCost').value || 0,
+      other_cost: document.getElementById('quoOtherCost').value || 0,
+      currency: document.getElementById('quoCurrency').value,
+      valid_until: document.getElementById('quoValidUntil').value || null,
+      status: document.getElementById('quoStatus').value,
+      notes: document.getElementById('quoNotes').value.trim()
+    };
+    try {
+      if (id) { updateRow('quotations', id, data); showToast('Quotation updated'); }
+      else { insertRow('quotations', data); showToast('Quotation created'); }
+    } catch (err) {
+      if (String(err.message).includes('UNIQUE')) { showToast('Quote number already exists!', 'error'); return; }
+      showToast('Error saving quotation', 'error'); return;
+    }
+    closeModal('quoModal');
+    renderQuotations();
+  });
+});
+function deleteQuotation(id) {
+  confirmDelete('Delete this quotation?', () => { deleteRow('quotations', id); renderQuotations(); showToast('Quotation deleted'); });
+}
+function convertQuotation(id) {
+  const r = one('quotations', id);
+  if (!r) return;
+  updateRow('quotations', id, { status: 'CONVERTED' });
+  closeModal('quoModal');
+  openShipmentModal(null, { customer_id: r.customer_id, mode: r.mode, origin: r.origin, destination: r.destination, incoterm: r.incoterm, cargo_desc: r.cargo_desc, weight_kg: r.weight_kg, volume_cbm: r.volume_cbm, packages: r.packages, freight_cost: r.freight_cost, other_cost: r.other_cost, currency: r.currency, quotationId: id });
+  renderQuotations();
+  showToast('Quotation converted — complete the new shipment form');
+}
+
+// ================= CUSTOMERS =================
+function renderCustomers() {
+  const search = document.getElementById('custSearch').value.trim();
+  let rows = all(`SELECT * FROM customers ORDER BY company`);
+  if (search) {
+    const t = search.toLowerCase();
+    rows = rows.filter(r => (r.company || '').toLowerCase().includes(t) || (r.contact_person || '').toLowerCase().includes(t) || (r.email || '').toLowerCase().includes(t));
+  }
+  const tbody = document.getElementById('custTableBody');
+  const empty = document.getElementById('custEmpty');
+  if (!rows.length) { tbody.innerHTML = ''; empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+  tbody.innerHTML = rows.map(r => {
+    const shipCount = all(`SELECT COUNT(*) c FROM shipments WHERE customer_id=?`, [r.id])[0]?.c || 0;
+    return `<tr class="hover:bg-gray-50">
+      <td class="px-4 py-3 font-medium">${esc(r.company)}</td>
+      <td class="px-4 py-3 text-sm">${esc(r.contact_person || '-')}</td>
+      <td class="px-4 py-3 text-sm text-gray-600">${esc(r.email || '-')}<br><span class="text-xs text-gray-400">${esc(r.phone || '')}</span></td>
+      <td class="px-4 py-3 text-sm">${esc(r.country || '-')}</td>
+      <td class="px-4 py-3 text-center">${shipCount}</td>
+      <td class="px-4 py-3 text-center whitespace-nowrap">
+        <button onclick="openCustomerModal(${r.id})" class="text-blue-500 hover:text-blue-700 mx-1"><i class="fas fa-edit"></i></button>
+        <button onclick="deleteCustomer(${r.id})" class="text-red-500 hover:text-red-700 mx-1"><i class="fas fa-trash"></i></button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+function openCustomerModal(id) {
+  document.getElementById('custForm').reset();
+  if (id) {
+    const r = one('customers', id);
+    document.getElementById('custModalTitle').textContent = 'Edit Customer';
+    document.getElementById('custEditId').value = id;
+    document.getElementById('custCompany').value = r.company;
+    document.getElementById('custContact').value = r.contact_person || '';
+    document.getElementById('custCountry').value = r.country || '';
+    document.getElementById('custEmail').value = r.email || '';
+    document.getElementById('custPhone').value = r.phone || '';
+    document.getElementById('custAddress').value = r.address || '';
+    document.getElementById('custTaxId').value = r.tax_id || '';
+    document.getElementById('custNotes').value = r.notes || '';
+  } else {
+    document.getElementById('custModalTitle').textContent = 'New Customer';
+    document.getElementById('custEditId').value = '';
+  }
+  openModalEl('custModal');
+}
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('custForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const id = document.getElementById('custEditId').value;
+    const data = {
+      company: document.getElementById('custCompany').value.trim(),
+      contact_person: document.getElementById('custContact').value.trim(),
+      country: document.getElementById('custCountry').value.trim(),
+      email: document.getElementById('custEmail').value.trim(),
+      phone: document.getElementById('custPhone').value.trim(),
+      address: document.getElementById('custAddress').value.trim(),
+      tax_id: document.getElementById('custTaxId').value.trim(),
+      notes: document.getElementById('custNotes').value.trim()
+    };
+    if (id) { updateRow('customers', id, data); showToast('Customer updated'); }
+    else { insertRow('customers', data); showToast('Customer added'); }
+    closeModal('custModal');
+    renderCustomers();
+  });
+});
+function deleteCustomer(id) {
+  confirmDelete('Delete this customer? Related shipments/quotations will keep their data but lose the link.', () => { deleteRow('customers', id); renderCustomers(); showToast('Customer deleted'); });
+}
+
+// ================= DOCUMENTS =================
+function renderDocuments() {
+  const search = document.getElementById('docSearch').value.trim();
+  const statusF = document.getElementById('docStatusFilter').value;
+  let rows = all(`SELECT d.*, s.shipment_no FROM documents d JOIN shipments s ON s.id=d.shipment_id ORDER BY d.id DESC`);
+  if (search) {
+    const t = search.toLowerCase();
+    rows = rows.filter(r => (r.shipment_no || '').toLowerCase().includes(t) || (r.doc_type || '').toLowerCase().includes(t));
+  }
+  if (statusF) rows = rows.filter(r => r.status === statusF);
+  const tbody = document.getElementById('docTableBody');
+  const empty = document.getElementById('docEmpty');
+  if (!rows.length) { tbody.innerHTML = ''; empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+  tbody.innerHTML = rows.map(r => `<tr class="hover:bg-gray-50">
+    <td class="px-4 py-3 font-medium text-blue-600">${esc(r.shipment_no)}</td>
+    <td class="px-4 py-3 text-sm">${esc(r.doc_type)}</td>
+    <td class="px-4 py-3 text-sm text-gray-600">${esc(r.doc_no || '-')}</td>
+    <td class="px-4 py-3">${badge(DOC_STATUSES, r.status)}</td>
+    <td class="px-4 py-3 text-sm">${fmtDate(r.issued_date)}</td>
+    <td class="px-4 py-3 text-center"><button onclick="openDocModal(${r.id})" class="text-blue-500 hover:text-blue-700"><i class="fas fa-edit"></i></button></td>
+  </tr>`).join('');
+}
+function openDocModal(id) {
+  const r = one('documents', id);
+  document.getElementById('docEditId').value = id;
+  document.getElementById('docType').value = r.doc_type;
+  document.getElementById('docNo').value = r.doc_no || '';
+  document.getElementById('docStatus').value = r.status;
+  document.getElementById('docIssuedDate').value = r.issued_date || '';
+  document.getElementById('docRemarks').value = r.remarks || '';
+  openModalEl('docModal');
+}
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('docForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const id = document.getElementById('docEditId').value;
+    updateRow('documents', id, {
+      doc_no: document.getElementById('docNo').value.trim(),
+      status: document.getElementById('docStatus').value,
+      issued_date: document.getElementById('docIssuedDate').value || null,
+      remarks: document.getElementById('docRemarks').value.trim()
     });
+    closeModal('docModal');
+    showToast('Document updated');
+    renderDocuments();
+    if (detailShipmentId) openDetail(detailShipmentId);
+  });
+});
 
-    function deleteShipment(id) {
-      if (!confirm('Are you sure you want to delete this shipment?')) return;
-      db.run(`DELETE FROM shipments WHERE id = ?`, [id]);
-      saveDB();
-      renderStats();
-      renderTable();
-      showToast('Shipment deleted');
+// ================= INVOICES =================
+function renderInvoices() {
+  const search = document.getElementById('invSearch').value.trim();
+  let rows = all(`SELECT i.*, c.company as cust_name, s.shipment_no FROM invoices i LEFT JOIN customers c ON c.id=i.customer_id LEFT JOIN shipments s ON s.id=i.shipment_id ORDER BY i.created_at DESC`);
+  if (search) {
+    const t = search.toLowerCase();
+    rows = rows.filter(r => (r.invoice_no || '').toLowerCase().includes(t) || (r.cust_name || '').toLowerCase().includes(t));
+  }
+  const tbody = document.getElementById('invTableBody');
+  const empty = document.getElementById('invEmpty');
+  if (!rows.length) { tbody.innerHTML = ''; empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+  tbody.innerHTML = rows.map(r => `<tr class="hover:bg-gray-50">
+    <td class="px-4 py-3 font-medium text-blue-600">${esc(r.invoice_no)}</td>
+    <td class="px-4 py-3 text-sm">${esc(r.cust_name || '-')}</td>
+    <td class="px-4 py-3 text-sm">${esc(r.shipment_no || '-')}</td>
+    <td class="px-4 py-3 text-right font-medium">${fmtMoney(r.amount, r.currency)}</td>
+    <td class="px-4 py-3 text-sm ${r.due_date && new Date(r.due_date) < new Date() && r.status !== 'PAID' ? 'text-red-500 font-medium' : ''}">${fmtDate(r.due_date)}</td>
+    <td class="px-4 py-3">${badge(INVOICE_STATUSES, r.status)}</td>
+    <td class="px-4 py-3 text-center whitespace-nowrap">
+      <button onclick="printInvoice(${r.id})" title="Print" class="text-gray-500 hover:text-gray-700 mx-1"><i class="fas fa-print"></i></button>
+      <button onclick="openInvoiceModal(${r.id})" title="Edit" class="text-blue-500 hover:text-blue-700 mx-1"><i class="fas fa-edit"></i></button>
+      <button onclick="deleteInvoice(${r.id})" title="Delete" class="text-red-500 hover:text-red-700 mx-1"><i class="fas fa-trash"></i></button>
+    </td>
+  </tr>`).join('');
+}
+function shipmentOptionsForInvoice(selectedId) {
+  const ships = all(`SELECT id, shipment_no FROM shipments ORDER BY shipment_no DESC`);
+  return `<option value="">-- None --</option>` + ships.map(s => `<option value="${s.id}" ${String(s.id) === String(selectedId) ? 'selected' : ''}>${esc(s.shipment_no)}</option>`).join('');
+}
+function openInvoiceModal(id, shipmentId) {
+  document.getElementById('invForm').reset();
+  document.getElementById('invCustomer').innerHTML = customerOptions();
+  document.getElementById('invShipment').innerHTML = shipmentOptionsForInvoice(shipmentId);
+  if (id) {
+    const r = one('invoices', id);
+    document.getElementById('invModalTitle').textContent = 'Edit Invoice';
+    document.getElementById('invEditId').value = id;
+    document.getElementById('invNo').value = r.invoice_no;
+    document.getElementById('invShipment').value = r.shipment_id || '';
+    document.getElementById('invCustomer').value = r.customer_id || '';
+    document.getElementById('invAmount').value = r.amount || '';
+    document.getElementById('invCurrency').value = r.currency || settings.currency;
+    document.getElementById('invIssuedDate').value = r.issued_date || '';
+    document.getElementById('invDueDate').value = r.due_date || '';
+    document.getElementById('invStatus').value = r.status;
+    document.getElementById('invNotes').value = r.notes || '';
+  } else {
+    document.getElementById('invModalTitle').textContent = 'New Invoice';
+    document.getElementById('invEditId').value = '';
+    document.getElementById('invNo').value = genNo('INV', 'invoices');
+    document.getElementById('invStatus').value = 'UNPAID';
+    document.getElementById('invCurrency').value = settings.currency || 'USD';
+    document.getElementById('invIssuedDate').value = new Date().toISOString().slice(0, 10);
+    if (shipmentId) { document.getElementById('invShipment').value = shipmentId; autofillInvoiceFromShipment(); }
+  }
+  openModalEl('invModal');
+}
+function autofillInvoiceFromShipment() {
+  const sid = document.getElementById('invShipment').value;
+  if (!sid) return;
+  const s = one('shipments', sid);
+  if (!s) return;
+  document.getElementById('invCustomer').value = s.customer_id || '';
+  document.getElementById('invAmount').value = s.sell_price || '';
+  document.getElementById('invCurrency').value = s.currency || settings.currency;
+}
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('invForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const id = document.getElementById('invEditId').value;
+    const data = {
+      invoice_no: document.getElementById('invNo').value.trim(),
+      shipment_id: document.getElementById('invShipment').value || null,
+      customer_id: document.getElementById('invCustomer').value || null,
+      amount: document.getElementById('invAmount').value || 0,
+      currency: document.getElementById('invCurrency').value,
+      issued_date: document.getElementById('invIssuedDate').value || null,
+      due_date: document.getElementById('invDueDate').value || null,
+      status: document.getElementById('invStatus').value,
+      notes: document.getElementById('invNotes').value.trim()
+    };
+    try {
+      if (id) { updateRow('invoices', id, data); showToast('Invoice updated'); }
+      else { insertRow('invoices', data); showToast('Invoice created'); }
+    } catch (err) {
+      if (String(err.message).includes('UNIQUE')) { showToast('Invoice number already exists!', 'error'); return; }
+      showToast('Error saving invoice', 'error'); return;
     }
+    closeModal('invModal');
+    renderInvoices();
+  });
+});
+function deleteInvoice(id) {
+  confirmDelete('Delete this invoice?', () => { deleteRow('invoices', id); renderInvoices(); showToast('Invoice deleted'); });
+}
 
-    function exportCSV() {
-      const data = db.exec(`SELECT shipment_no, customer, origin, destination, status, eta, remarks, created_at, updated_at FROM shipments ORDER BY created_at DESC`);
-      if (!data.length) { showToast('No data to export', 'error'); return; }
-      const cols = data[0].columns;
-      const rows = data[0].values;
-      let csv = cols.join(',') + '\n';
-      rows.forEach(r => csv += r.map(v => `"${(v||'').toString().replace(/"/g,'""')}"`).join(',') + '\n');
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `shipments_${new Date().toISOString().slice(0,10)}.csv`;
-      a.click();
-      showToast('CSV exported');
+// ================= TRACK (public-style lookup) =================
+function trackShipment() {
+  const term = document.getElementById('trackInput').value.trim();
+  const box = document.getElementById('trackResult');
+  if (!term) { box.innerHTML = ''; return; }
+  const r = all(`SELECT * FROM shipments WHERE shipment_no = ? OR shipment_no LIKE ?`, [term, `%${term}%`])[0];
+  if (!r) {
+    box.innerHTML = `<div class="bg-white rounded-xl shadow-sm p-8 text-center text-gray-400"><i class="fas fa-circle-question text-4xl mb-3"></i><p>No shipment found for "${esc(term)}"</p></div>`;
+    return;
+  }
+  const mode = MODES.find(m => m.value === r.mode) || MODES[0];
+  const events = all(`SELECT * FROM shipment_events WHERE shipment_id=? ORDER BY event_date DESC`, [r.id]);
+  box.innerHTML = `
+    <div class="bg-white rounded-xl shadow-sm p-6">
+      <div class="flex justify-between items-start flex-wrap gap-2 mb-4">
+        <div><div class="text-xl font-bold text-blue-600">${esc(r.shipment_no)}</div><div class="text-sm text-gray-500">${mode.icon} ${mode.label}</div></div>
+        ${badge(STATUSES, r.status)}
+      </div>
+      <div class="grid grid-cols-2 gap-4 text-sm mb-4">
+        <div><span class="text-gray-500">Route</span><div class="font-medium">${esc(r.origin)} → ${esc(r.destination)}</div></div>
+        <div><span class="text-gray-500">ETD / ETA</span><div class="font-medium">${fmtDate(r.etd)} / ${fmtDate(r.eta)}</div></div>
+      </div>
+      <h3 class="font-semibold text-sm mb-2"><i class="fas fa-timeline text-blue-500 mr-1"></i>Timeline</h3>
+      <div class="space-y-2 text-sm">
+        ${events.map(e => `<div class="flex justify-between border-b pb-1"><span>${badge(STATUSES, e.status)}</span><span class="text-xs text-gray-400">${e.event_date ? e.event_date.slice(0, 16).replace('T', ' ') : ''}</span></div>`).join('') || '<p class="text-gray-400">No updates yet.</p>'}
+      </div>
+    </div>`;
+}
+
+// ================= REPORTS =================
+function renderReports() {
+  const shipments = all(`SELECT * FROM shipments`);
+  const now = new Date();
+  const months = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: d.toLocaleString(undefined, { month: 'short', year: '2-digit' }) });
+  }
+  const revenue = months.map(m => shipments.filter(s => (s.created_at || '').startsWith(m.key)).reduce((sum, s) => sum + Number(s.sell_price || 0), 0));
+  renderChart('chartRevenue', 'line', months.map(m => m.label), revenue);
+
+  const delivered = shipments.filter(s => s.status === 'DELIVERED' && s.eta && s.ata);
+  const onTime = delivered.filter(s => new Date(s.ata) <= new Date(s.eta)).length;
+  const late = delivered.length - onTime;
+  renderChart('chartOnTime', 'doughnut', ['On Time', 'Late'], [onTime, late]);
+
+  const quotes = all(`SELECT status FROM quotations`);
+  const won = quotes.filter(q => q.status === 'CONVERTED' || q.status === 'ACCEPTED').length;
+  const lost = quotes.filter(q => q.status === 'REJECTED' || q.status === 'EXPIRED').length;
+  const pending = quotes.length - won - lost;
+  renderChart('chartQuoteRate', 'doughnut', ['Won', 'Lost', 'Pending'], [won, lost, pending]);
+
+  const invStatusCounts = INVOICE_STATUSES.map(s => all(`SELECT COUNT(*) c FROM invoices WHERE status=?`, [s.value])[0]?.c || 0);
+  renderChart('chartInvoiceStatus', 'bar', INVOICE_STATUSES.map(s => s.label), invStatusCounts);
+}
+
+// ================= SETTINGS =================
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('settingsForm').addEventListener('submit', e => {
+    e.preventDefault();
+    settings.companyName = document.getElementById('setCompanyName').value.trim();
+    settings.address = document.getElementById('setAddress').value.trim();
+    settings.phone = document.getElementById('setPhone').value.trim();
+    settings.email = document.getElementById('setEmail').value.trim();
+    settings.currency = document.getElementById('setCurrency').value;
+    const file = document.getElementById('setLogo').files[0];
+    const finish = () => { saveSettings(); applySettingsToUI(); showToast('Company profile saved'); };
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = () => { settings.logo = reader.result; finish(); };
+      reader.readAsDataURL(file);
+    } else finish();
+  });
+});
+
+function exportBackup() {
+  const payload = { db: Array.from(db.export()), settings, exportedAt: new Date().toISOString() };
+  const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `freight-forwarder-backup_${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  showToast('Backup exported');
+}
+function importBackup(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const payload = JSON.parse(reader.result);
+      const SQL = await initSqlJs({ locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}` });
+      db = new SQL.Database(new Uint8Array(payload.db));
+      settings = { ...settings, ...(payload.settings || {}) };
+      saveDB(); saveSettings(); applySettingsToUI();
+      showToast('Backup restored');
+      switchView('dashboard');
+    } catch (err) { showToast('Invalid backup file', 'error'); }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+function resetAllData() {
+  if (!confirm('This will permanently delete ALL shipments, quotations, customers, documents and invoices. Continue?')) return;
+  ['shipment_events', 'documents', 'invoices', 'quotations', 'shipments', 'customers'].forEach(t => db.run(`DELETE FROM ${t}`));
+  saveDB();
+  showToast('All data has been reset');
+  switchView('dashboard');
+}
+
+// ================= CSV EXPORT / IMPORT =================
+function toCSV(cols, rows) {
+  let csv = cols.join(',') + '\n';
+  rows.forEach(r => csv += cols.map(c => `"${(r[c] ?? '').toString().replace(/"/g, '""')}"`).join(',') + '\n');
+  return csv;
+}
+function downloadCSV(filename, csv) {
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+}
+function exportCSV(entity) {
+  let cols, rows, filename;
+  if (entity === 'shipments') {
+    cols = ['shipment_no', 'mode', 'origin', 'destination', 'carrier', 'vessel_voyage', 'container_no', 'bl_no', 'status', 'etd', 'eta', 'ata', 'cost', 'sell_price', 'currency', 'remarks'];
+    rows = all(`SELECT * FROM shipments ORDER BY created_at DESC`);
+    filename = `shipments_${new Date().toISOString().slice(0, 10)}.csv`;
+  } else if (entity === 'customers') {
+    cols = ['company', 'contact_person', 'email', 'phone', 'country', 'address', 'tax_id'];
+    rows = all(`SELECT * FROM customers ORDER BY company`);
+    filename = `customers_${new Date().toISOString().slice(0, 10)}.csv`;
+  } else if (entity === 'invoices') {
+    cols = ['invoice_no', 'amount', 'currency', 'status', 'issued_date', 'due_date'];
+    rows = all(`SELECT * FROM invoices ORDER BY created_at DESC`);
+    filename = `invoices_${new Date().toISOString().slice(0, 10)}.csv`;
+  }
+  if (!rows || !rows.length) { showToast('No data to export', 'error'); return; }
+  downloadCSV(filename, toCSV(cols, rows));
+  showToast('CSV exported');
+}
+function parseCSV(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
+  return lines.slice(1).map(line => {
+    const values = [];
+    let cur = '', inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; } else inQuotes = !inQuotes; }
+      else if (ch === ',' && !inQuotes) { values.push(cur); cur = ''; }
+      else cur += ch;
     }
+    values.push(cur);
+    return Object.fromEntries(headers.map((h, i) => [h, values[i] || '']));
+  });
+}
+function importShipmentsCSV(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const rows = parseCSV(reader.result);
+    let imported = 0;
+    rows.forEach(r => {
+      if (!r.shipment_no || !r.origin || !r.destination) return;
+      try {
+        insertRow('shipments', {
+          shipment_no: r.shipment_no, mode: r.mode || 'SEA_FCL', origin: r.origin, destination: r.destination,
+          carrier: r.carrier || '', vessel_voyage: r.vessel_voyage || '', container_no: r.container_no || '',
+          bl_no: r.bl_no || '', status: r.status || 'PENDING', etd: r.etd || null, eta: r.eta || null, ata: r.ata || null,
+          cost: r.cost || null, sell_price: r.sell_price || null, currency: r.currency || settings.currency, remarks: r.remarks || ''
+        });
+        imported++;
+      } catch (e) { /* skip duplicates */ }
+    });
+    showToast(`${imported} shipment(s) imported`);
+    renderShipments();
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
 
-    function showToast(msg, type='success') {
-      const toast = document.getElementById('toast');
-      document.getElementById('toastMsg').textContent = msg;
-      toast.style.background = type === 'error' ? '#dc2626' : '#1f2937';
-      toast.classList.remove('hidden', 'translate-y-4', 'opacity-0');
-      setTimeout(() => toast.classList.add('hidden'), 3000);
-    }
+// ================= PRINT =================
+function printDocumentHTML(title, bodyHTML) {
+  const printArea = document.getElementById('printArea');
+  printArea.innerHTML = `
+    <div style="padding:40px;font-family:Arial,sans-serif;color:#111;max-width:800px;margin:0 auto;">
+      <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1d4ed8;padding-bottom:16px;margin-bottom:20px;">
+        <div>
+          ${settings.logo ? `<img src="${settings.logo}" style="height:48px;margin-bottom:6px;">` : ''}
+          <div style="font-size:20px;font-weight:bold;color:#1d4ed8;">${esc(settings.companyName || 'Freight Forwarder')}</div>
+          <div style="font-size:12px;color:#555;">${esc(settings.address || '')}</div>
+          <div style="font-size:12px;color:#555;">${esc(settings.phone || '')} ${settings.email ? '· ' + esc(settings.email) : ''}</div>
+        </div>
+        <div style="font-size:22px;font-weight:bold;color:#555;">${title}</div>
+      </div>
+      ${bodyHTML}
+      <div style="margin-top:40px;font-size:11px;color:#999;text-align:center;">Generated on ${new Date().toLocaleString()}</div>
+    </div>`;
+  window.print();
+}
+function printQuotation(id) {
+  const r = one('quotations', id);
+  const cust = r.customer_id ? one('customers', r.customer_id) : null;
+  const total = Number(r.freight_cost || 0) + Number(r.other_cost || 0);
+  printDocumentHTML(`QUOTATION<br><span style="font-size:14px;">${esc(r.quote_no)}</span>`, `
+    <table style="width:100%;font-size:13px;border-collapse:collapse;margin-bottom:16px;">
+      <tr><td style="padding:4px 0;color:#666;">Customer</td><td style="padding:4px 0;font-weight:bold;">${esc(cust?.company || '-')}</td>
+          <td style="padding:4px 0;color:#666;">Valid Until</td><td style="padding:4px 0;">${fmtDate(r.valid_until)}</td></tr>
+      <tr><td style="padding:4px 0;color:#666;">Route</td><td style="padding:4px 0;">${esc(r.origin)} → ${esc(r.destination)}</td>
+          <td style="padding:4px 0;color:#666;">Mode</td><td style="padding:4px 0;">${esc(r.mode)}</td></tr>
+      <tr><td style="padding:4px 0;color:#666;">Cargo</td><td style="padding:4px 0;" colspan="3">${esc(r.cargo_desc || '-')} (${r.weight_kg || 0}kg, ${r.volume_cbm || 0}CBM, ${r.packages || 0}pkgs)</td></tr>
+    </table>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <tr style="background:#f3f4f6;"><th style="text-align:left;padding:8px;">Charge</th><th style="text-align:right;padding:8px;">Amount (${esc(r.currency)})</th></tr>
+      <tr><td style="padding:8px;border-bottom:1px solid #eee;">Freight Cost</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">${Number(r.freight_cost || 0).toFixed(2)}</td></tr>
+      <tr><td style="padding:8px;border-bottom:1px solid #eee;">Other Charges</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">${Number(r.other_cost || 0).toFixed(2)}</td></tr>
+      <tr><td style="padding:8px;font-weight:bold;">Total</td><td style="padding:8px;text-align:right;font-weight:bold;">${total.toFixed(2)}</td></tr>
+    </table>
+    ${r.notes ? `<p style="margin-top:16px;font-size:12px;color:#555;">${esc(r.notes)}</p>` : ''}
+  `);
+}
+function printInvoice(id) {
+  const r = one('invoices', id);
+  const cust = r.customer_id ? one('customers', r.customer_id) : null;
+  const ship = r.shipment_id ? one('shipments', r.shipment_id) : null;
+  printDocumentHTML(`INVOICE<br><span style="font-size:14px;">${esc(r.invoice_no)}</span>`, `
+    <table style="width:100%;font-size:13px;border-collapse:collapse;margin-bottom:16px;">
+      <tr><td style="padding:4px 0;color:#666;">Bill To</td><td style="padding:4px 0;font-weight:bold;">${esc(cust?.company || '-')}</td>
+          <td style="padding:4px 0;color:#666;">Issued</td><td style="padding:4px 0;">${fmtDate(r.issued_date)}</td></tr>
+      <tr><td style="padding:4px 0;color:#666;">Shipment</td><td style="padding:4px 0;">${esc(ship?.shipment_no || '-')}</td>
+          <td style="padding:4px 0;color:#666;">Due</td><td style="padding:4px 0;">${fmtDate(r.due_date)}</td></tr>
+    </table>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <tr style="background:#f3f4f6;"><th style="text-align:left;padding:8px;">Description</th><th style="text-align:right;padding:8px;">Amount (${esc(r.currency)})</th></tr>
+      <tr><td style="padding:8px;border-bottom:1px solid #eee;">Freight forwarding services${ship ? ' — ' + esc(ship.origin) + ' → ' + esc(ship.destination) : ''}</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">${Number(r.amount || 0).toFixed(2)}</td></tr>
+      <tr><td style="padding:8px;font-weight:bold;">Total Due</td><td style="padding:8px;text-align:right;font-weight:bold;">${Number(r.amount || 0).toFixed(2)}</td></tr>
+    </table>
+    <p style="margin-top:10px;font-size:12px;">Status: <b>${esc(r.status)}</b></p>
+    ${r.notes ? `<p style="margin-top:10px;font-size:12px;color:#555;">${esc(r.notes)}</p>` : ''}
+  `);
+}
+function printShipment(id) {
+  const r = one('shipments', id);
+  const cust = r.customer_id ? one('customers', r.customer_id) : null;
+  printDocumentHTML(`SHIPMENT SUMMARY<br><span style="font-size:14px;">${esc(r.shipment_no)}</span>`, `
+    <table style="width:100%;font-size:13px;border-collapse:collapse;">
+      <tr><td style="padding:4px 0;color:#666;">Customer</td><td style="padding:4px 0;">${esc(cust?.company || '-')}</td><td style="padding:4px 0;color:#666;">Mode</td><td style="padding:4px 0;">${esc(r.mode)}</td></tr>
+      <tr><td style="padding:4px 0;color:#666;">Route</td><td style="padding:4px 0;">${esc(r.origin)} → ${esc(r.destination)}</td><td style="padding:4px 0;color:#666;">Status</td><td style="padding:4px 0;">${esc(r.status)}</td></tr>
+      <tr><td style="padding:4px 0;color:#666;">Carrier</td><td style="padding:4px 0;">${esc(r.carrier || '-')}</td><td style="padding:4px 0;color:#666;">Vessel/Voyage</td><td style="padding:4px 0;">${esc(r.vessel_voyage || '-')}</td></tr>
+      <tr><td style="padding:4px 0;color:#666;">Container</td><td style="padding:4px 0;">${esc(r.container_no || '-')}</td><td style="padding:4px 0;color:#666;">B/L / AWB</td><td style="padding:4px 0;">${esc(r.bl_no || '-')}</td></tr>
+      <tr><td style="padding:4px 0;color:#666;">ETD</td><td style="padding:4px 0;">${fmtDate(r.etd)}</td><td style="padding:4px 0;color:#666;">ETA</td><td style="padding:4px 0;">${fmtDate(r.eta)}</td></tr>
+      <tr><td style="padding:4px 0;color:#666;">Cargo</td><td style="padding:4px 0;" colspan="3">${esc(r.cargo_desc || '-')} (${r.weight_kg || 0}kg, ${r.volume_cbm || 0}CBM, ${r.packages || 0}pkgs)</td></tr>
+    </table>
+  `);
+}
 
-    init();
-  </script>
+init();
+</script>
 </body>
 </html>
