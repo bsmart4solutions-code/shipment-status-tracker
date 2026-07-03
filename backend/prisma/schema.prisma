@@ -288,6 +288,9 @@ model Job {
 
   documents JobDocument[]
 
+  // One quotation converts to at most one job. NULLs are treated as distinct
+  // by Postgres, so manually-created jobs (no quotation) are unaffected.
+  @@unique([quotationId])
   @@index([customerId])
   @@index([status])
   @@map("jobs")

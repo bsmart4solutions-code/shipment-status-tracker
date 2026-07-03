@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
 import { SequenceService } from '../../common/sequence.service';
@@ -230,6 +230,15 @@ export class QuotationsService {
     if (quote.status === 'CANCELLED' || quote.status === 'LOST') {
       throw new BadRequestException(`Cannot convert a ${quote.status} quotation`);
     }
+    // One quotation converts to at most one job. Fail fast with a friendly
+    // message; the DB unique constraint below is the race-safe backstop.
+    const existingJob = await this.prisma.job.findUnique({
+      where: { quotationId: id },
+      select: { jobNumber: true },
+    });
+    if (existingJob) {
+      throw new ConflictException(`Quotation already converted to job ${existingJob.jobNumber}`);
+    }
     const jobNumber = await this.seq.next('job');
     // Primary vendor: the one carrying the largest cost share
     const vendorTotals = new Map<string, number>();
@@ -238,25 +247,32 @@ export class QuotationsService {
     }
     const primaryVendorId = [...vendorTotals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
-    const job = await this.prisma.$transaction(async (tx) => {
-      const j = await tx.job.create({
-        data: {
-          jobNumber,
-          customerId: quote.customerId,
-          quotationId: quote.id,
-          vendorId: primaryVendorId,
-          currency: quote.currency,
-          actualCost: quote.totalCost,
-          actualRevenue: quote.sellingPrice,
-          profit: quote.grossProfit,
-          status: 'OPEN',
-        },
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const j = await tx.job.create({
+          data: {
+            jobNumber,
+            customerId: quote.customerId,
+            quotationId: quote.id,
+            vendorId: primaryVendorId,
+            currency: quote.currency,
+            actualCost: quote.totalCost,
+            actualRevenue: quote.sellingPrice,
+            profit: quote.grossProfit,
+            status: 'OPEN',
+          },
+        });
+        if (quote.status !== 'WON') await tx.quotation.update({ where: { id }, data: { status: 'WON' } });
+        await tx.auditLog.create({ data: { userId, action: 'CONVERT', entityType: 'quotation', entityId: id, detail: { jobNumber } } });
+        return j;
       });
-      if (quote.status !== 'WON') await tx.quotation.update({ where: { id }, data: { status: 'WON' } });
-      await tx.auditLog.create({ data: { userId, action: 'CONVERT', entityType: 'quotation', entityId: id, detail: { jobNumber } } });
-      return j;
-    });
-    return job;
+    } catch (e) {
+      // Concurrent double-submit: the unique constraint on quotationId fired.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('Quotation was already converted to a job');
+      }
+      throw e;
+    }
   }
 
   async remove(id: string, userId?: string) {
