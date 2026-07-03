@@ -1,0 +1,423 @@
+// Logistics ERP & CRM — normalized relational schema (PostgreSQL)
+//
+// Design notes
+// - Every business document (quotation, job) references master data by FK;
+//   nothing is duplicated except immutable snapshot fields needed for audit
+//   (e.g. quotation item cost at time of quoting).
+// - Money is stored as Decimal(14,2); rates/factors as Decimal(14,6).
+// - Codes (CUST-0001, QT-2026-0001...) are generated from the Sequence table
+//   so prefixes/padding stay configurable, never hardcoded.
+// - Future modules (invoices, purchase orders, accounting) can attach to
+//   Quotation/Job/Customer/Vendor without schema redesign.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────── Auth & RBAC ───────────────────────────
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String
+  fullName     String
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id])
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  quotations      Quotation[]      @relation("SalesPerson")
+  vendorRatings   VendorRating[]
+  customerRatings CustomerRating[]
+  notifications   Notification[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String           @id @default(uuid())
+  name        String           @unique // Administrator, Manager, Sales, Operation, Finance, Viewer
+  description String?
+  isSystem    Boolean          @default(false)
+  users       User[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id    String           @id @default(uuid())
+  code  String           @unique // e.g. "customers.read", "quotations.write"
+  label String
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// ─────────────────────────── Master data ───────────────────────────
+
+enum EntityStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model Customer {
+  id           String       @id @default(uuid())
+  code         String       @unique // auto: CUST-0001
+  companyName  String
+  pic          String? // person in charge
+  phone        String?
+  email        String?
+  address      String?
+  industry     String?
+  paymentTerm  String? // e.g. "NET 30"
+  creditLimit  Decimal?     @db.Decimal(14, 2)
+  status       EntityStatus @default(ACTIVE)
+  priority     Int          @default(3) // 1 highest .. 5 lowest
+  notes        String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  quotations Quotation[]
+  jobs       Job[]
+  ratings    CustomerRating[]
+
+  @@index([companyName])
+  @@map("customers")
+}
+
+model Vendor {
+  id            String       @id @default(uuid())
+  code          String       @unique // auto: VEN-0001
+  name          String
+  contactPerson String?
+  phone         String?
+  email         String?
+  address       String?
+  paymentTerm   String?
+  status        EntityStatus @default(ACTIVE)
+  isPreferred   Boolean      @default(false)
+  notes         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  rates          VendorServiceRate[]
+  ratings        VendorRating[]
+  quotationItems QuotationItem[]
+  jobs           Job[]
+
+  @@index([name])
+  @@map("vendors")
+}
+
+model Service {
+  id          String       @id @default(uuid())
+  code        String       @unique // auto: SVC-0001
+  name        String       @unique // Air Freight, Sea Freight, ...
+  description String?
+  status      EntityStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+
+  rates          VendorServiceRate[]
+  quotationItems QuotationItem[]
+
+  @@map("services")
+}
+
+// ─────────────────────── Vendor service rates ───────────────────────
+
+enum RateType {
+  FIXED
+  PER_KG
+  PER_CBM
+  PER_TON
+  PER_TRIP
+  PER_CONTAINER
+  PER_SHIPMENT
+  PER_HOUR
+  PER_DAY
+}
+
+model VendorServiceRate {
+  id            String    @id @default(uuid())
+  vendorId      String
+  vendor        Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  serviceId     String
+  service       Service   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  origin        String?
+  destination   String?
+  country       String?
+  state         String?
+  rateType      RateType  @default(FIXED)
+  currency      String    @default("MYR")
+  cost          Decimal   @db.Decimal(14, 4)
+  minimumCharge Decimal?  @db.Decimal(14, 2)
+  effectiveDate DateTime  @default(now())
+  expiryDate    DateTime?
+  remarks       String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([serviceId, origin, destination])
+  @@index([vendorId])
+  @@map("vendor_service_rates")
+}
+
+// ─────────────────────────── Quotations ───────────────────────────
+
+enum QuotationStatus {
+  DRAFT
+  SENT
+  WON
+  LOST
+  CANCELLED
+}
+
+model Quotation {
+  id            String          @id @default(uuid())
+  quoteNumber   String          @unique // auto: QT-2026-0001
+  customerId    String
+  customer      Customer        @relation(fields: [customerId], references: [id])
+  quoteDate     DateTime        @default(now())
+  validityDate  DateTime?
+  salesPersonId String?
+  salesPerson   User?           @relation("SalesPerson", fields: [salesPersonId], references: [id])
+  currency      String          @default("MYR")
+  status        QuotationStatus @default(DRAFT)
+  // Costing engine outputs (denormalized totals for fast listing; recomputed on every item change)
+  totalCost     Decimal         @default(0) @db.Decimal(14, 2)
+  subtotalSell  Decimal         @default(0) @db.Decimal(14, 2)
+  discountPct   Decimal         @default(0) @db.Decimal(7, 4)
+  discountAmt   Decimal         @default(0) @db.Decimal(14, 2)
+  serviceChargePct Decimal      @default(0) @db.Decimal(7, 4)
+  miscCharge    Decimal         @default(0) @db.Decimal(14, 2)
+  taxPct        Decimal         @default(0) @db.Decimal(7, 4)
+  taxAmt        Decimal         @default(0) @db.Decimal(14, 2)
+  sellingPrice  Decimal         @default(0) @db.Decimal(14, 2) // grand total
+  grossProfit   Decimal         @default(0) @db.Decimal(14, 2)
+  gpPercent     Decimal         @default(0) @db.Decimal(7, 4)
+  remark        String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  items QuotationItem[]
+  jobs  Job[]
+
+  @@index([customerId])
+  @@index([status])
+  @@map("quotations")
+}
+
+model QuotationItem {
+  id           String    @id @default(uuid())
+  quotationId  String
+  quotation    Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  serviceId    String
+  service      Service   @relation(fields: [serviceId], references: [id])
+  vendorId     String?
+  vendor       Vendor?   @relation(fields: [vendorId], references: [id])
+  rateId       String? // source VendorServiceRate snapshot reference
+  description  String?
+  quantity     Decimal   @default(1) @db.Decimal(14, 4)
+  unit         String? // KG / CBM / TRIP / CONTAINER...
+  costCurrency String    @default("MYR")
+  fxRate       Decimal   @default(1) @db.Decimal(14, 6) // costCurrency -> quotation currency
+  unitCost     Decimal   @default(0) @db.Decimal(14, 4)
+  minimumCharge Decimal? @db.Decimal(14, 2)
+  markupPct    Decimal   @default(0) @db.Decimal(7, 4)
+  unitSell     Decimal   @default(0) @db.Decimal(14, 4) // in quotation currency
+  totalCost    Decimal   @default(0) @db.Decimal(14, 2) // in quotation currency
+  totalSell    Decimal   @default(0) @db.Decimal(14, 2)
+  grossProfit  Decimal   @default(0) @db.Decimal(14, 2)
+  gpPercent    Decimal   @default(0) @db.Decimal(7, 4)
+  sortOrder    Int       @default(0)
+
+  @@index([quotationId])
+  @@map("quotation_items")
+}
+
+// ─────────────────────────── Jobs / Shipments ───────────────────────────
+
+enum JobStatus {
+  OPEN
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+model Job {
+  id             String    @id @default(uuid())
+  jobNumber      String    @unique // auto: JOB-2026-0001
+  customerId     String
+  customer       Customer  @relation(fields: [customerId], references: [id])
+  quotationId    String?
+  quotation      Quotation? @relation(fields: [quotationId], references: [id])
+  shipmentDate   DateTime?
+  etd            DateTime?
+  eta            DateTime?
+  origin         String?
+  destination    String?
+  vendorId       String? // primary assigned vendor
+  vendor         Vendor?   @relation(fields: [vendorId], references: [id])
+  trackingNumber String?
+  status         JobStatus @default(OPEN)
+  actualCost     Decimal   @default(0) @db.Decimal(14, 2)
+  actualRevenue  Decimal   @default(0) @db.Decimal(14, 2)
+  profit         Decimal   @default(0) @db.Decimal(14, 2)
+  currency       String    @default("MYR")
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  documents JobDocument[]
+
+  @@index([customerId])
+  @@index([status])
+  @@map("jobs")
+}
+
+model JobDocument {
+  id         String   @id @default(uuid())
+  jobId      String
+  job        Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  name       String
+  category   String? // BL, Invoice, Permit, POD...
+  url        String? // object storage key / external URL
+  uploadedAt DateTime @default(now())
+
+  @@map("job_documents")
+}
+
+// ─────────────────────────── Ratings (KPI-based) ───────────────────────────
+
+// Weighted criteria are configurable via SettingKV (rating.vendor.weights / rating.customer.weights)
+
+model VendorRating {
+  id                  String   @id @default(uuid())
+  vendorId            String
+  vendor              Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  ratedById           String?
+  ratedBy             User?    @relation(fields: [ratedById], references: [id])
+  price               Int // 1..5
+  serviceQuality      Int
+  communication       Int
+  deliveryPerformance Int
+  reliability         Int
+  responseSpeed       Int
+  overallScore        Decimal  @db.Decimal(5, 2) // weighted, computed by service layer
+  comment             String?
+  createdAt           DateTime @default(now())
+
+  @@index([vendorId])
+  @@map("vendor_ratings")
+}
+
+model CustomerRating {
+  id                String   @id @default(uuid())
+  customerId        String
+  customer          Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  ratedById         String?
+  ratedBy           User?    @relation(fields: [ratedById], references: [id])
+  paymentSpeed      Int
+  profitability     Int
+  repeatBusiness    Int
+  communication     Int
+  complaintHistory  Int // higher = fewer complaints
+  businessPotential Int
+  overallScore      Decimal  @db.Decimal(5, 2)
+  comment           String?
+  createdAt         DateTime @default(now())
+
+  @@index([customerId])
+  @@map("customer_ratings")
+}
+
+// ─────────────────────────── Supporting tables ───────────────────────────
+
+model ExchangeRate {
+  id            String   @id @default(uuid())
+  baseCurrency  String // e.g. USD
+  quoteCurrency String // e.g. MYR
+  rate          Decimal  @db.Decimal(14, 6) // 1 base = rate quote
+  effectiveDate DateTime @default(now())
+
+  @@unique([baseCurrency, quoteCurrency, effectiveDate])
+  @@map("exchange_rates")
+}
+
+// Configurable auto-numbering: CUST-0001, VEN-0001, QT-2026-0001, JOB-2026-0001, SVC-0001
+model Sequence {
+  key         String  @id // "customer" | "vendor" | "service" | "quotation" | "job"
+  prefix      String
+  padding     Int     @default(4)
+  includeYear Boolean @default(false)
+  nextValue   Int     @default(1)
+  yearScope   Int? // current year when includeYear (reset counter on new year)
+
+  @@map("sequences")
+}
+
+// Generic configuration store (rating weights, thresholds, company profile, defaults)
+model SettingKV {
+  key   String @id
+  value Json
+
+  @@map("settings")
+}
+
+enum NotificationType {
+  QUOTATION_EXPIRY
+  VENDOR_RATE_EXPIRY
+  PAYMENT_DUE
+  JOB_DELAY
+  HIGH_COST
+  LOW_MARGIN
+  SYSTEM
+}
+
+model Notification {
+  id         String           @id @default(uuid())
+  type       NotificationType
+  title      String
+  message    String
+  entityType String? // "quotation" | "job" | "rate" | ...
+  entityId   String?
+  userId     String? // null = broadcast to all
+  user       User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isRead     Boolean          @default(false)
+  dedupeKey  String?          @unique // prevents duplicate alerts for same entity+type+period
+  createdAt  DateTime         @default(now())
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  action     String // CREATE / UPDATE / DELETE / LOGIN / CONVERT ...
+  entityType String
+  entityId   String?
+  detail     Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}

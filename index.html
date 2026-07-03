@@ -479,6 +479,7 @@
             <div class="flex flex-wrap gap-3">
               <button onclick="exportBackup()" class="bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg text-sm"><i class="fas fa-download mr-1"></i>Export Full Backup</button>
               <label class="bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg text-sm cursor-pointer"><i class="fas fa-upload mr-1"></i>Restore Backup<input type="file" accept=".json" class="hidden" onchange="importBackup(event)"></label>
+              <button onclick="loadSampleData()" class="bg-blue-50 text-blue-600 hover:bg-blue-100 px-4 py-2 rounded-lg text-sm"><i class="fas fa-flask mr-1"></i>Load Sample Data</button>
               <button onclick="resetAllData()" class="bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-lg text-sm"><i class="fas fa-trash mr-1"></i>Reset All Data</button>
             </div>
             <p class="text-xs text-gray-400 mt-3">All data is stored locally in your browser (localStorage). Export a backup regularly to avoid data loss.</p>
@@ -739,8 +740,15 @@
         <div id="poDocName" class="text-sm font-medium text-blue-600"></div>
         <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="poLetterhead" checked> With letterhead</label>
         <label class="flex items-center gap-2 text-sm" id="poChargesWrap"><input type="checkbox" id="poCharges"> Include charges</label>
+        <div id="poFormatWrap" class="hidden">
+          <label class="block text-sm font-medium mb-1">Printing Format</label>
+          <select id="poFormat" class="w-full px-3 py-2 border rounded-lg outline-none text-sm">
+            <option value="detailed">Format A — Detailed (with line items)</option>
+            <option value="simple">Format B — Simple (summary only)</option>
+          </select>
+        </div>
         <div class="flex gap-3 pt-2">
-          <button onclick="confirmPrintJobDoc()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg"><i class="fas fa-print mr-2"></i>Print</button>
+          <button onclick="confirmPrintOptions()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg"><i class="fas fa-print mr-2"></i>Print</button>
           <button onclick="closeModal('poModal')" class="px-6 py-2 border rounded-lg hover:bg-gray-50">Cancel</button>
         </div>
       </div>
@@ -2238,7 +2246,7 @@ function renderBilling() {
     <td class="px-4 py-3 text-sm ${r.due_date && new Date(r.due_date) < new Date() && r.status !== 'PAID' ? 'text-red-500 font-medium' : ''}">${fmtDate(r.due_date)}</td>
     <td class="px-4 py-3">${badge(BILLING_STATUSES, r.status)}</td>
     <td class="px-4 py-3 text-center whitespace-nowrap">
-      <button onclick="printBillingDoc(${r.id})" title="Print" class="text-gray-500 hover:text-gray-700 mx-1"><i class="fas fa-print"></i></button>
+      <button onclick="askPrintBilling(${r.id})" title="Print (choose format)" class="text-gray-500 hover:text-gray-700 mx-1"><i class="fas fa-print"></i></button>
       <button onclick="openBillingModal(${r.id})" title="Edit" class="text-blue-500 hover:text-blue-700 mx-1"><i class="fas fa-edit"></i></button>
       <button onclick="deleteBillingDoc(${r.id})" title="Delete" class="text-red-500 hover:text-red-700 mx-1"><i class="fas fa-trash"></i></button>
     </td>
@@ -2421,7 +2429,7 @@ function renderVouchers() {
     <td class="px-4 py-3 text-sm">${fmtDate(r.voucher_date)}</td>
     <td class="px-4 py-3">${badge(VOUCHER_STATUSES, r.status)}</td>
     <td class="px-4 py-3 text-center whitespace-nowrap">
-      <button onclick="printVoucher(${r.id})" title="Print (incl. cheque)" class="text-gray-500 hover:text-gray-700 mx-1"><i class="fas fa-print"></i></button>
+      <button onclick="askPrintVoucher(${r.id})" title="Print (choose format, incl. cheque)" class="text-gray-500 hover:text-gray-700 mx-1"><i class="fas fa-print"></i></button>
       <button onclick="openVoucherModal(${r.id})" title="Edit" class="text-blue-500 hover:text-blue-700 mx-1"><i class="fas fa-edit"></i></button>
       <button onclick="deleteVoucher(${r.id})" title="Delete" class="text-red-500 hover:text-red-700 mx-1"><i class="fas fa-trash"></i></button>
     </td>
@@ -3039,6 +3047,46 @@ function importBackup(event) {
   reader.readAsText(file);
   event.target.value = '';
 }
+function loadSampleData() {
+  const existing = all(`SELECT COUNT(*) c FROM shipments`)[0].c;
+  if (existing && !confirm('Sample data will be added alongside your existing records. Continue?')) return;
+  const today = new Date();
+  const iso = d => d.toISOString();
+  const day = n => { const d = new Date(today); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+
+  const t1 = insertRow('customers', { company: 'Sunrise Electronics Sdn. Bhd.', contact_person: 'Mei Ling', email: 'ops@sunrise-elec.com', phone: '+60 3-2168 0001', country: 'Malaysia', address: 'Lot 12, Jalan Industri 3, Shah Alam', billing_currency: 'MYR', categories: JSON.stringify(['Actual Shipper']), contacts: JSON.stringify([{ name: 'Kevin Tan', phone: '+60 12-330 8899', email: 'kevin@sunrise-elec.com' }]), addresses: JSON.stringify([{ label: 'Warehouse', address: 'Gudang 7, Port Klang Free Zone' }]) });
+  const t2 = insertRow('customers', { company: 'EuroLink Logistics B.V.', contact_person: 'Jan de Vries', email: 'jan@eurolink.nl', phone: '+31 10 555 0199', country: 'Netherlands', address: 'Havenstraat 88, Rotterdam', billing_currency: 'EUR', categories: JSON.stringify(['Agent', 'Forwarding Agent']), contacts: '[]', addresses: '[]' });
+  const t3 = insertRow('customers', { company: 'Golden Harvest Trading Ltd.', contact_person: 'W. Chen', email: 'chen@goldenharvest.hk', phone: '+852 2555 0123', country: 'Hong Kong', address: 'Unit 9, Kwai Chung Container Terminal', billing_currency: 'USD', categories: JSON.stringify(['Consignee / Notify Party']), contacts: '[]', addresses: '[]' });
+  insertRow('customers', { company: 'Harbour Trucking Services', contact_person: 'Ravi Kumar', email: 'ravi@harbourtruck.my', phone: '+60 3-3168 4455', country: 'Malaysia', address: 'Port Klang', billing_currency: 'MYR', categories: JSON.stringify(['Haulier', 'Transporter']), contacts: '[]', addresses: '[]' });
+
+  const j1 = insertRow('shipments', { shipment_no: genNo('SEJ', 'shipments', 'shipment_no'), job_type: 'EXPORT', mode: 'FCL', customer_id: t1, customer_ref: 'PO-88123', incoterm: 'FOB', salesman: 'KC Ho', coordinator: 'Aina', shipper: 'Sunrise Electronics Sdn. Bhd.', consignee: 'EuroLink Logistics B.V.', notify_party: 'Same as consignee', agent: 'EuroLink Logistics B.V.', origin: 'Port Klang', destination: 'Rotterdam', carrier: 'Maersk', vessel_voyage: 'MSK EMERALD V.024W', container_no: 'MSKU7712345', container_type: '40HQ', booking_no: 'BKG-556677', bl_no: 'MAEU220145678', hbl_no: 'QNF-HBL-0001', cargo_desc: 'Consumer electronics', weight_kg: 8200, volume_cbm: 58, packages: 640, etd: day(-12), eta: day(9), status: 'IN_TRANSIT', customs_status: 'CLEARED', currency: 'USD', created_at: iso(today), updated_at: iso(today) });
+  ensureDocuments(j1, 'EXPORT');
+  logEvent(j1, 'BOOKED', 'Space confirmed with carrier');
+  logEvent(j1, 'SHIPPED', 'Loaded on board');
+  logEvent(j1, 'IN_TRANSIT', 'Vessel departed Port Klang');
+  insertRow('job_charges', { job_id: j1, charge_type: 'BILLING', description: 'Ocean Freight 40HQ', amount: 2450, currency: 'USD', party: '' });
+  insertRow('job_charges', { job_id: j1, charge_type: 'BILLING', description: 'Documentation & Handling', amount: 180, currency: 'USD', party: '' });
+  insertRow('job_charges', { job_id: j1, charge_type: 'COST', description: 'Carrier buy rate', amount: 1980, currency: 'USD', party: 'Maersk' });
+  insertRow('job_charges', { job_id: j1, charge_type: 'COST', description: 'Haulage Port Klang', amount: 140, currency: 'USD', party: 'Harbour Trucking Services' });
+
+  const j2 = insertRow('shipments', { shipment_no: genNo('SIJ', 'shipments', 'shipment_no'), job_type: 'IMPORT', mode: 'LCL', customer_id: t3, incoterm: 'CIF', salesman: 'Sara Lim', shipper: 'Ningbo Metalworks Co.', consignee: 'Golden Harvest Trading Ltd.', origin: 'Ningbo-Zhoushan', destination: 'Port Klang', carrier: 'COSCO Shipping', vessel_voyage: 'COSCO PRIDE V.118E', container_no: 'CSLU3300221', container_type: 'LCL', bl_no: 'COSU663322110', do_no: '', cargo_desc: 'Steel fittings', weight_kg: 2400, volume_cbm: 6.5, packages: 48, etd: day(-6), eta: day(3), status: 'ARRIVED', customs_status: 'IN_PROGRESS', currency: 'USD', created_at: iso(today), updated_at: iso(today) });
+  ensureDocuments(j2, 'IMPORT');
+  logEvent(j2, 'ARRIVED', 'Vessel berthed, awaiting customs');
+  insertRow('job_charges', { job_id: j2, charge_type: 'BILLING', description: 'Import handling & D/O fee', amount: 320, currency: 'USD', party: '' });
+  insertRow('job_charges', { job_id: j2, charge_type: 'COST', description: 'Co-loader charges', amount: 205, currency: 'USD', party: '' });
+
+  insertRow('quotations', { quote_no: genNo('QUO', 'quotations', 'quote_no'), customer_id: t1, mode: 'AIR', incoterm: 'CIP', origin: 'Penang', destination: 'Tokyo', cargo_desc: 'Semiconductor samples', weight_kg: 120, volume_cbm: 0.8, packages: 4, freight_cost: 890, other_cost: 110, currency: 'USD', valid_until: day(21), status: 'SENT', notes: 'Rate valid subject to space availability.' });
+
+  const items = [{ description: 'Ocean Freight 40HQ', amount: 2450 }, { description: 'Documentation & Handling', amount: 180 }];
+  const subtotal = 2630, taxAmt = subtotal * (settings.taxRate || 0) / 100;
+  insertRow('billing_docs', { kind: 'TAX_INVOICE', billing_no: genBillingNo('S1'), set_code: 'S1', job_id: j1, customer_id: t1, currency: 'USD', items_json: JSON.stringify(items), subtotal, tax_rate: settings.taxRate || 0, tax_amount: taxAmt, total: subtotal + taxAmt, status: 'UNPAID', issued_date: day(0), due_date: day(30), notes: 'Payment within 30 days.' });
+  insertRow('vouchers', { kind: 'PAYABLE', voucher_no: genVoucherNo('PAYABLE'), trader_id: null, payee: 'Harbour Trucking Services', job_id: j1, description: 'Haulage charges — Port Klang', amount: 140, currency: 'USD', method: 'Cheque', cheque_no: 'CHQ-204411', bank: 'Maybank', voucher_date: day(0), status: 'PENDING' });
+  if (!all(`SELECT id FROM charge_templates`).length) {
+    insertRow('charge_templates', { name: 'Standard FCL Export', items_json: JSON.stringify([{ description: 'Ocean Freight', amount: 0 }, { description: 'B/L Fee', amount: 60 }, { description: 'Documentation Fee', amount: 50 }, { description: 'Seal Fee', amount: 15 }]) });
+  }
+  showToast('Sample data loaded');
+  switchView('dashboard');
+}
 function resetAllData() {
   if (!confirm('This will permanently delete ALL jobs, quotations, traders, documents, billing, vouchers and letters. Continue?')) return;
   ['shipment_events', 'documents', 'job_charges', 'attachments', 'billing_docs', 'vouchers', 'charge_templates', 'letters', 'quotations', 'shipments', 'customers'].forEach(t => db.run(`DELETE FROM ${t}`));
@@ -3201,20 +3249,44 @@ function jobPrintBody(r, opts = {}) {
   </div>`;
   return html;
 }
-function askPrintJobDoc(jobId, docType) {
-  pendingPrint = { jobId, docType };
-  document.getElementById('poDocName').textContent = `${docType} — ${one('shipments', jobId)?.shipment_no || ''}`;
-  document.getElementById('poChargesWrap').style.display = docType === 'Arrival Notice' ? '' : 'none';
+function openPrintOptions(pending, opts = {}) {
+  pendingPrint = pending;
+  document.getElementById('poDocName').textContent = opts.name || '';
+  document.getElementById('poChargesWrap').style.display = opts.charges ? '' : 'none';
+  document.getElementById('poFormatWrap').classList.toggle('hidden', !opts.format);
   document.getElementById('poCharges').checked = false;
+  document.getElementById('poFormat').value = 'detailed';
   document.getElementById('poLetterhead').checked = true;
   openModalEl('poModal');
 }
-function confirmPrintJobDoc() {
+function askPrintJobDoc(jobId, docType) {
+  openPrintOptions({ type: 'jobdoc', jobId, docType }, {
+    name: `${docType} — ${one('shipments', jobId)?.shipment_no || ''}`,
+    charges: docType === 'Arrival Notice'
+  });
+}
+function askPrintBilling(id) {
+  const r = one('billing_docs', id);
+  openPrintOptions({ type: 'billing', id }, { name: `${(BILLING_KINDS.find(k => k.value === r.kind) || {}).label || r.kind} — ${r.billing_no}`, format: true });
+}
+function askPrintVoucher(id) {
+  const r = one('vouchers', id);
+  openPrintOptions({ type: 'voucher', id }, { name: `${(VOUCHER_KINDS.find(k => k.value === r.kind) || {}).label || r.kind} — ${r.voucher_no}`, format: true });
+}
+function confirmPrintOptions() {
   if (!pendingPrint) return;
-  const { jobId, docType } = pendingPrint;
-  const r = one('shipments', jobId);
+  const letterhead = document.getElementById('poLetterhead').checked;
+  const format = document.getElementById('poFormat').value;
+  const p = pendingPrint;
   closeModal('poModal');
-  printDocumentHTML(docType.toUpperCase(), jobPrintBody(r, { charges: document.getElementById('poCharges').checked }), document.getElementById('poLetterhead').checked);
+  if (p.type === 'jobdoc') {
+    const r = one('shipments', p.jobId);
+    printDocumentHTML(p.docType.toUpperCase(), jobPrintBody(r, { charges: document.getElementById('poCharges').checked }), letterhead);
+  } else if (p.type === 'billing') {
+    printBillingDoc(p.id, { letterhead, format });
+  } else if (p.type === 'voucher') {
+    printVoucher(p.id, { letterhead, format });
+  }
 }
 function printShipment(id) {
   const r = one('shipments', id);
@@ -3267,32 +3339,42 @@ function printQuotation(id) {
     </table>
     ${r.notes ? `<p style="margin-top:16px;font-size:12px;color:#555;">${esc(r.notes)}</p>` : ''}`);
 }
-function printBillingDoc(id) {
+function printBillingDoc(id, opts = {}) {
   const r = one('billing_docs', id);
   const cust = r.customer_id ? one('customers', r.customer_id) : null;
   const job = r.job_id ? one('shipments', r.job_id) : null;
   const kindLabel = (BILLING_KINDS.find(k => k.value === r.kind) || {}).label || r.kind;
   const items = billingItems(r);
+  const simple = opts.format === 'simple';
+  const itemsTable = simple
+    ? `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <tr style="background:#f3f4f6;"><th style="text-align:left;padding:8px;">Description</th><th style="text-align:right;padding:8px;">Amount (${esc(r.currency)})</th></tr>
+        <tr><td style="padding:8px;border-bottom:1px solid #eee;">Freight forwarding services${job ? ' — ' + esc(job.origin) + ' → ' + esc(job.destination) : ''}</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">${money2(r.subtotal)}</td></tr>
+        <tr><td style="padding:8px;text-align:right;color:#666;">${esc(settings.taxLabel || 'Tax')} (${r.tax_rate}%)</td><td style="padding:8px;text-align:right;">${money2(r.tax_amount)}</td></tr>
+        <tr><td style="padding:8px;text-align:right;font-weight:bold;">Total</td><td style="padding:8px;text-align:right;font-weight:bold;">${money2(r.total)}</td></tr>
+      </table>`
+    : `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <tr style="background:#f3f4f6;"><th style="text-align:left;padding:8px;">Description</th><th style="text-align:right;padding:8px;">Amount (${esc(r.currency)})</th></tr>
+        ${items.map(i => `<tr><td style="padding:8px;border-bottom:1px solid #eee;">${esc(i.description)}</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">${money2(i.amount)}</td></tr>`).join('')}
+        <tr><td style="padding:8px;text-align:right;color:#666;">Subtotal</td><td style="padding:8px;text-align:right;">${money2(r.subtotal)}</td></tr>
+        <tr><td style="padding:8px;text-align:right;color:#666;">${esc(settings.taxLabel || 'Tax')} (${r.tax_rate}%)</td><td style="padding:8px;text-align:right;">${money2(r.tax_amount)}</td></tr>
+        <tr><td style="padding:8px;text-align:right;font-weight:bold;">Total</td><td style="padding:8px;text-align:right;font-weight:bold;">${money2(r.total)}</td></tr>
+      </table>`;
   printDocumentHTML(`${kindLabel.toUpperCase()}<br><span style="font-size:14px;">${esc(r.billing_no)}</span>`, `
     ${kvTable([['Bill To', cust?.company || '-'], ['Issued', fmtDate(r.issued_date)], ['Address', cust?.address || '-'], ['Due', fmtDate(r.due_date)], ['Job No', job?.shipment_no || '-'], ['Route', job ? `${job.origin} → ${job.destination}` : '-'], ['MBL / HBL', job ? `${job.bl_no || '-'} / ${job.hbl_no || '-'}` : '-'], ['Status', r.status]])}
-    <table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <tr style="background:#f3f4f6;"><th style="text-align:left;padding:8px;">Description</th><th style="text-align:right;padding:8px;">Amount (${esc(r.currency)})</th></tr>
-      ${items.map(i => `<tr><td style="padding:8px;border-bottom:1px solid #eee;">${esc(i.description)}</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">${money2(i.amount)}</td></tr>`).join('')}
-      <tr><td style="padding:8px;text-align:right;color:#666;">Subtotal</td><td style="padding:8px;text-align:right;">${money2(r.subtotal)}</td></tr>
-      <tr><td style="padding:8px;text-align:right;color:#666;">${esc(settings.taxLabel || 'Tax')} (${r.tax_rate}%)</td><td style="padding:8px;text-align:right;">${money2(r.tax_amount)}</td></tr>
-      <tr><td style="padding:8px;text-align:right;font-weight:bold;">Total</td><td style="padding:8px;text-align:right;font-weight:bold;">${money2(r.total)}</td></tr>
-    </table>
+    ${itemsTable}
     <p style="margin-top:10px;font-size:12px;font-style:italic;">${esc(numberToWords(Number(r.total || 0), r.currency))}</p>
-    ${r.notes ? `<p style="margin-top:10px;font-size:12px;color:#555;">${esc(r.notes)}</p>` : ''}`);
+    ${r.notes ? `<p style="margin-top:10px;font-size:12px;color:#555;">${esc(r.notes)}</p>` : ''}`, opts.letterhead !== false);
 }
-function printVoucher(id) {
+function printVoucher(id, opts = {}) {
   const r = one('vouchers', id);
   const trader = r.trader_id ? one('customers', r.trader_id) : null;
   const job = r.job_id ? one('shipments', r.job_id) : null;
   const kindLabel = (VOUCHER_KINDS.find(k => k.value === r.kind) || {}).label || r.kind;
   const payee = trader?.company || r.payee || '-';
+  const simple = opts.format === 'simple';
   let chequeBlock = '';
-  if (r.method === 'Cheque') {
+  if (r.method === 'Cheque' && !simple) {
     chequeBlock = `
       <div style="border:1.5px dashed #999;border-radius:8px;padding:18px;margin-top:24px;">
         <div style="font-size:11px;color:#999;margin-bottom:8px;">CHEQUE PRINT</div>
@@ -3305,8 +3387,11 @@ function printVoucher(id) {
         <div style="text-align:right;font-size:16px;font-weight:bold;">${fmtMoney(r.amount, r.currency)}</div>
       </div>`;
   }
+  const kvPairs = simple
+    ? [['Payee', payee], ['Date', fmtDate(r.voucher_date)], ['Description', r.description || '-'], ['Status', r.status]]
+    : [['Payee', payee], ['Date', fmtDate(r.voucher_date)], ['Job No', job?.shipment_no || '-'], ['Method', r.method || '-'], ['Description', r.description || '-'], ['Status', r.status]];
   printDocumentHTML(`${kindLabel.toUpperCase()}<br><span style="font-size:14px;">${esc(r.voucher_no)}</span>`, `
-    ${kvTable([['Payee', payee], ['Date', fmtDate(r.voucher_date)], ['Job No', job?.shipment_no || '-'], ['Method', r.method || '-'], ['Description', r.description || '-'], ['Status', r.status]])}
+    ${kvTable(kvPairs)}
     <table style="width:60%;border-collapse:collapse;font-size:14px;">
       <tr><td style="padding:8px;font-weight:bold;">Amount</td><td style="padding:8px;text-align:right;font-weight:bold;">${fmtMoney(r.amount, r.currency)}</td></tr>
     </table>
@@ -3316,7 +3401,7 @@ function printVoucher(id) {
       <div style="text-align:center;width:30%;border-top:1px solid #999;padding-top:6px;">Prepared By</div>
       <div style="text-align:center;width:30%;border-top:1px solid #999;padding-top:6px;">Approved By</div>
       <div style="text-align:center;width:30%;border-top:1px solid #999;padding-top:6px;">Received By</div>
-    </div>`);
+    </div>`, opts.letterhead !== false);
 }
 function printLetter(id) {
   const r = one('letters', id);

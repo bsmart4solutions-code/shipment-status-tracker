@@ -1,0 +1,47 @@
+# Logistics ERP & CRM — full stack
+#   docker compose up -d --build
+#   web: http://localhost:3000   api: http://localhost:4000/api
+# First run seeds nothing automatically; exec into api to seed:
+#   docker compose exec api npx prisma db seed
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: erp
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-erp_dev_pw}
+      POSTGRES_DB: logistics_erp
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U erp -d logistics_erp"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql://erp:${DB_PASSWORD:-erp_dev_pw}@db:5432/logistics_erp?schema=public
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_EXPIRES_IN: 8h
+      PORT: 4000
+      CORS_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      BASE_CURRENCY: ${BASE_CURRENCY:-MYR}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+
+  web:
+    build: ./frontend
+    environment:
+      API_URL: http://api:4000
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.next/
+.env
+*.log
+.DS_Store
+coverage/
+backend/prisma/*.db
+frontend/tsconfig.tsbuildinfo
