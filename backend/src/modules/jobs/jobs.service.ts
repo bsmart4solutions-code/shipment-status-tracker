@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
 import { SequenceService } from '../../common/sequence.service';
 import { PaginationDto, paged } from '../../common/dto/pagination.dto';
+import { assertJobStatusTransition } from '../../common/state-machine';
 import { AddDocumentDto, CreateJobDto, UpdateJobDto } from './jobs.dto';
 
 @Injectable()
@@ -66,6 +67,7 @@ export class JobsService {
   async update(id: string, dto: UpdateJobDto) {
     const existing = await this.prisma.job.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Job not found');
+    if (dto.status) assertJobStatusTransition(existing.status, dto.status);
     const actualCost = dto.actualCost ?? Number(existing.actualCost);
     const actualRevenue = dto.actualRevenue ?? Number(existing.actualRevenue);
     return this.prisma.job.update({
