@@ -18,6 +18,9 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY prisma ./prisma
+# Run as the unprivileged built-in `node` user, not root. The copied files
+# are owned by root and stay read-only to the app, which is what we want.
+USER node
 EXPOSE 4000
 # Apply migrations then start the API
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main.js"]
