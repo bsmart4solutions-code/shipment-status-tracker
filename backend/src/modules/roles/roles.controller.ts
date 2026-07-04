@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { ArrayNotEmpty, IsArray, IsOptional, IsString } from 'class-validator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -25,10 +26,12 @@ export class RolesController {
   permissions() { return this.roles.permissions(); }
 
   @Post() @RequirePermission('users.write')
-  create(@Body() dto: CreateRoleDto) { return this.roles.create(dto.name, dto.description); }
+  create(@Body() dto: CreateRoleDto, @CurrentUser() user: { id: string }) {
+    return this.roles.create(dto.name, dto.description, user.id);
+  }
 
   @Put(':id/permissions') @RequirePermission('users.write')
-  setPermissions(@Param('id') id: string, @Body() dto: SetPermissionsDto) {
-    return this.roles.setPermissions(id, dto.permissionIds);
+  setPermissions(@Param('id') id: string, @Body() dto: SetPermissionsDto, @CurrentUser() user: { id: string }) {
+    return this.roles.setPermissions(id, dto.permissionIds, user.id);
   }
 }

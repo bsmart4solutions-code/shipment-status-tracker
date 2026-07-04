@@ -29,6 +29,10 @@ model User {
   roleId       String
   role         Role       @relation(fields: [roleId], references: [id])
   isActive     Boolean    @default(true)
+  // Account-level brute-force lockout (IP throttling alone is bypassable
+  // by rotating IPs): N failures lock the account until lockedUntil.
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -517,12 +521,15 @@ model Notification {
 model AuditLog {
   id         String   @id @default(uuid())
   userId     String?
-  action     String // CREATE / UPDATE / DELETE / LOGIN / CONVERT ...
+  action     String // CREATE / UPDATE / DELETE / LOGIN / LOGIN_FAILED / PERMISSIONS_CHANGE ...
   entityType String
   entityId   String?
   detail     Json?
+  ip         String? // captured from request context for forensics
+  userAgent  String?
   createdAt  DateTime @default(now())
 
   @@index([entityType, entityId])
+  @@index([action, createdAt])
   @@map("audit_logs")
 }

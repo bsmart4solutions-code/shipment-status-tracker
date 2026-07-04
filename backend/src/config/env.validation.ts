@@ -22,8 +22,11 @@ export class EnvironmentVariables {
   @IsNotEmpty()
   JWT_SECRET: string;
 
-  @IsNumber()
-  JWT_EXPIRY: number = 86400;
+  // Must match the name the auth module actually reads (jwt.config.ts).
+  // Vercel/ms format: "8h", "30m", "7d"...
+  @IsString()
+  @IsOptional()
+  JWT_EXPIRES_IN: string = '8h';
 
   @IsString()
   @IsOptional()

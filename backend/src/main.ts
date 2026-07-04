@@ -39,8 +39,10 @@ async function bootstrap() {
 
   app.enableCors({
     origin: corsOrigins,
-    credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    // Pure Bearer-token auth, no cookies anywhere — keep credentials off so
+    // a future permissive origin can't be combined with credentialed requests.
+    credentials: false,
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     maxAge: 3600,
   });
