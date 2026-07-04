@@ -3,7 +3,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
 import { SequenceService } from '../../common/sequence.service';
 import { PaginationDto, paged } from '../../common/dto/pagination.dto';
-import { AddDocumentDto, CreateJobDto, UpdateJobDto } from './jobs.dto';
+import { assertJobStatusTransition } from '../../common/state-machine';
+import { AddDocumentDto, AddTrackingEventDto, CreateJobDto, UpdateJobDto } from './jobs.dto';
 
 @Injectable()
 export class JobsService {
@@ -49,6 +50,7 @@ export class JobsService {
         vendor: true,
         quotation: { include: { items: { include: { service: { select: { name: true } } } } } },
         documents: { orderBy: { uploadedAt: 'desc' } },
+        tracking: { orderBy: { occurredAt: 'asc' }, include: { createdBy: { select: { fullName: true } } } },
       },
     });
     if (!job) throw new NotFoundException('Job not found');
@@ -58,19 +60,65 @@ export class JobsService {
   async create(dto: CreateJobDto) {
     const jobNumber = await this.seq.next('job');
     const profit = (dto.actualRevenue ?? 0) - (dto.actualCost ?? 0);
-    return this.prisma.job.create({
-      data: { ...this.mapDates(dto), jobNumber, profit } as Prisma.JobUncheckedCreateInput,
+    const status = dto.status ?? 'OPEN';
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.job.create({
+        data: { ...this.mapDates(dto), jobNumber, profit, status } as Prisma.JobUncheckedCreateInput,
+      });
+      await tx.jobTrackingEvent.create({
+        data: { jobId: job.id, status, description: 'Job created', source: 'SYSTEM' },
+      });
+      return job;
     });
   }
 
   async update(id: string, dto: UpdateJobDto) {
     const existing = await this.prisma.job.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Job not found');
+    if (dto.status) assertJobStatusTransition(existing.status, dto.status);
     const actualCost = dto.actualCost ?? Number(existing.actualCost);
     const actualRevenue = dto.actualRevenue ?? Number(existing.actualRevenue);
-    return this.prisma.job.update({
-      where: { id },
-      data: { ...this.mapDates(dto), profit: actualRevenue - actualCost } as Prisma.JobUncheckedUpdateInput,
+    const statusChanged = !!dto.status && dto.status !== existing.status;
+
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.job.update({
+        where: { id },
+        data: { ...this.mapDates(dto), profit: actualRevenue - actualCost } as Prisma.JobUncheckedUpdateInput,
+      });
+      if (statusChanged) {
+        await tx.jobTrackingEvent.create({
+          data: { jobId: id, status: dto.status!, description: `Status changed: ${existing.status} → ${dto.status}`, source: 'SYSTEM' },
+        });
+      }
+      return job;
+    });
+  }
+
+  /** Chronological tracking timeline for a job (oldest first). */
+  async listTracking(jobId: string) {
+    const exists = await this.prisma.job.findUnique({ where: { id: jobId }, select: { id: true } });
+    if (!exists) throw new NotFoundException('Job not found');
+    return this.prisma.jobTrackingEvent.findMany({
+      where: { jobId },
+      orderBy: { occurredAt: 'asc' },
+      include: { createdBy: { select: { fullName: true } } },
+    });
+  }
+
+  /** Manually logged milestone (e.g. "Departed origin port") independent of the job's OPEN/IN_PROGRESS/... status. */
+  async addTrackingEvent(jobId: string, dto: AddTrackingEventDto, userId?: string) {
+    const exists = await this.prisma.job.findUnique({ where: { id: jobId }, select: { id: true } });
+    if (!exists) throw new NotFoundException('Job not found');
+    return this.prisma.jobTrackingEvent.create({
+      data: {
+        jobId,
+        status: dto.status,
+        location: dto.location,
+        description: dto.description,
+        occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : new Date(),
+        source: 'MANUAL',
+        createdById: userId,
+      },
     });
   }
 

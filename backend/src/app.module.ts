@@ -23,6 +23,7 @@ import { RequestLoggerMiddleware } from './common/middleware/request-logger.midd
 import { MetricsMiddleware } from './common/middleware/metrics.middleware';
 import { CustomThrottlerGuard } from './common/guards/rate-limit.guard';
 import { HealthModule } from './modules/health/health.module';
+import { InvoicesModule } from './modules/invoices/invoices.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { HealthModule } from './modules/health/health.module';
     NotificationsModule,
     SettingsApiModule,
     HealthModule,
+    InvoicesModule,
   ],
   providers: [
     {

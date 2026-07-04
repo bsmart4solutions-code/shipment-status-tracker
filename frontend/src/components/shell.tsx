@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
-  Bell, FileText, Home, LayoutDashboard, LogOut, Moon, Package, Scale,
+  Bell, FileText, Home, LayoutDashboard, LogOut, Moon, Package, Receipt, Scale,
   Search, Settings, Ship, Sun, Truck, Users, Wallet, X,
 } from 'lucide-react';
 import { api, clearSession, getToken, getUser, hasPermission } from '@/lib/api';
@@ -20,6 +20,7 @@ const NAV = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, perm: 'dashboard.read' },
   { href: '/quotations', label: 'Quotations', icon: FileText, perm: 'quotations.read' },
   { href: '/jobs', label: 'Jobs / Shipments', icon: Package, perm: 'jobs.read' },
+  { href: '/invoices', label: 'Invoices', icon: Receipt, perm: 'invoices.read' },
   { href: '/customers', label: 'Customers', icon: Users, perm: 'customers.read' },
   { href: '/vendors', label: 'Vendors', icon: Truck, perm: 'vendors.read' },
   { href: '/services', label: 'Services', icon: Home, perm: 'services.read' },

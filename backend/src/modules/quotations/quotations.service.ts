@@ -5,6 +5,7 @@ import { SequenceService } from '../../common/sequence.service';
 import { SettingsService } from '../../common/settings.service';
 import { PaginationDto, paged } from '../../common/dto/pagination.dto';
 import { computeItem, computeQuotation } from '../costing/costing.engine';
+import { assertQuotationStatusTransition } from '../../common/state-machine';
 import { CreateQuotationDto, QuotationItemDto, UpdateQuotationDto } from './quotations.dto';
 
 @Injectable()
@@ -218,18 +219,20 @@ export class QuotationsService {
   }
 
   async setStatus(id: string, status: 'DRAFT' | 'SENT' | 'WON' | 'LOST' | 'CANCELLED', userId?: string) {
-    const quote = await this.prisma.quotation.update({ where: { id }, data: { status } }).catch(() => null);
-    if (!quote) throw new NotFoundException('Quotation not found');
-    await this.prisma.auditLog.create({ data: { userId, action: 'STATUS', entityType: 'quotation', entityId: id, detail: { status } } });
+    const existing = await this.prisma.quotation.findUnique({ where: { id }, select: { status: true } });
+    if (!existing) throw new NotFoundException('Quotation not found');
+    assertQuotationStatusTransition(existing.status, status);
+    const quote = await this.prisma.quotation.update({ where: { id }, data: { status } });
+    await this.prisma.auditLog.create({ data: { userId, action: 'STATUS', entityType: 'quotation', entityId: id, detail: { from: existing.status, to: status } } });
     return quote;
   }
 
   /** Quotation → Job conversion (automation). Marks the quote WON and copies commercials. */
   async convertToJob(id: string, userId?: string) {
     const quote = await this.get(id);
-    if (quote.status === 'CANCELLED' || quote.status === 'LOST') {
-      throw new BadRequestException(`Cannot convert a ${quote.status} quotation`);
-    }
+    // Conversion implies a WON transition; the state machine is the single
+    // source of truth for which statuses may reach WON (blocks CANCELLED/LOST).
+    assertQuotationStatusTransition(quote.status, 'WON');
     // One quotation converts to at most one job. Fail fast with a friendly
     // message; the DB unique constraint below is the race-safe backstop.
     const existingJob = await this.prisma.job.findUnique({
