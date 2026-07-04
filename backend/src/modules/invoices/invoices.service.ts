@@ -6,9 +6,8 @@ import { requestContext } from '../../common/request-context';
 import { SequenceService } from '../../common/sequence.service';
 import { PaginationDto, paged } from '../../common/dto/pagination.dto';
 import { assertInvoiceStatusTransition } from '../../common/state-machine';
+import { applyPayment, computeTotals, round2 as r2, OverpaymentError, NonPositivePaymentError } from './invoice.calc';
 import { CreateInvoiceDto, RecordPaymentDto, UpdateInvoiceDto } from './invoices.dto';
-
-const r2 = (n: number) => Math.round(n * 100) / 100;
 
 @Injectable()
 export class InvoicesService {
@@ -20,8 +19,7 @@ export class InvoicesService {
 
   /** subtotal + tax, computed server-side so the client can't send an arbitrary total. */
   private totals(subtotal: number, taxPct: number) {
-    const taxAmt = r2(subtotal * (taxPct / 100));
-    return { taxAmt, totalAmount: r2(subtotal + taxAmt) };
+    return computeTotals(subtotal, taxPct);
   }
 
   async list(dto: PaginationDto & { status?: string; customerId?: string; jobId?: string }) {
@@ -141,12 +139,14 @@ export class InvoicesService {
     if (existing.status !== 'ISSUED' && existing.status !== 'PARTIALLY_PAID') {
       throw new BadRequestException(`Cannot record a payment on a ${existing.status} invoice`);
     }
-    const remaining = r2(Number(existing.totalAmount) - Number(existing.amountPaid));
-    if (dto.amount > remaining) {
-      throw new BadRequestException(`Payment of ${dto.amount} exceeds remaining balance of ${remaining}`);
+    let newAmountPaid: number;
+    let newStatus: 'PARTIALLY_PAID' | 'PAID';
+    try {
+      ({ newAmountPaid, newStatus } = applyPayment(Number(existing.totalAmount), Number(existing.amountPaid), dto.amount));
+    } catch (e) {
+      if (e instanceof OverpaymentError || e instanceof NonPositivePaymentError) throw new BadRequestException(e.message);
+      throw e;
     }
-    const newAmountPaid = r2(Number(existing.amountPaid) + dto.amount);
-    const newStatus = newAmountPaid >= Number(existing.totalAmount) ? 'PAID' : 'PARTIALLY_PAID';
     assertInvoiceStatusTransition(existing.status, newStatus);
 
     return this.prisma.$transaction(async (tx) => {
