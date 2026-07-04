@@ -27,7 +27,7 @@ export class VendorsService {
   }
 
   async list(dto: PaginationDto & { status?: string }) {
-    const where: Prisma.VendorWhereInput = {};
+    const where: Prisma.VendorWhereInput = { deletedAt: null };
     if (dto.search) {
       where.OR = [
         { name: { contains: dto.search, mode: 'insensitive' } },
@@ -75,18 +75,17 @@ export class VendorsService {
     }
   }
 
+  /** Soft delete — moves the vendor to the recycle bin, restorable. */
   async remove(id: string) {
-    try {
-      await this.prisma.vendor.delete({ where: { id } });
-    } catch (e) {
-      rethrowPrisma(e, 'Vendor', 'Vendor has rates/ratings/jobs — set status to INACTIVE instead of deleting');
-    }
+    const existing = await this.prisma.vendor.findFirst({ where: { id, deletedAt: null } });
+    if (!existing) throw new NotFoundException('Vendor not found');
+    await this.prisma.vendor.update({ where: { id }, data: { deletedAt: new Date() } });
     return { deleted: true };
   }
 
   /** Automatic vendor ranking: rating (50) + spend share (30) + preferred bonus (20). Spend in base currency. */
   async ranking() {
-    const vendors = await this.prisma.vendor.findMany({ where: { status: 'ACTIVE' } });
+    const vendors = await this.prisma.vendor.findMany({ where: { status: 'ACTIVE', deletedAt: null } });
     const ratings = await this.prisma.vendorRating.groupBy({ by: ['vendorId'], _avg: { overallScore: true } });
     const spendMap = await this.spendByVendor();
     const rateMap = new Map(ratings.map((r) => [r.vendorId, Number(r._avg.overallScore ?? 0)]));

@@ -5,8 +5,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus, Star, Trophy } from 'lucide-react';
+import { Plus, Star, Trophy, Upload } from 'lucide-react';
 import { Shell } from '@/components/shell';
+import { ImportDialog } from '@/components/import-dialog';
 import { ErrorText, GpBadge, Modal, Pagination, StatusBadge, Table } from '@/components/ui';
 import { api, downloadCsv, hasPermission } from '@/lib/api';
 import { fmtDate, fmtMoney } from '@/lib/utils';
@@ -48,6 +49,7 @@ export default function CustomersPage() {
   const [editing, setEditing] = useState<Customer | 'new' | null>(null);
   const [rating, setRating] = useState<Customer | null>(null);
   const [showRanking, setShowRanking] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   const { data } = useQuery({
     queryKey: ['customers', page, search],
@@ -66,6 +68,7 @@ export default function CustomersPage() {
       <div className="flex gap-2">
         <button className="btn-ghost" onClick={() => setShowRanking(true)}><Trophy size={15} /> Ranking</button>
         <button className="btn-ghost" onClick={() => downloadCsv('/reports/customers/export', 'customers.csv')}>Export CSV</button>
+        {canWrite && <button className="btn-ghost" onClick={() => setShowImport(true)}><Upload size={15} /> Import CSV</button>}
         {canWrite && <button className="btn-primary" onClick={() => setEditing('new')}><Plus size={15} /> New Customer</button>}
       </div>
     }>
@@ -103,6 +106,11 @@ export default function CustomersPage() {
       {editing && <CustomerModal customer={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {rating && <RatingModal customer={rating} onClose={() => setRating(null)} />}
       {showRanking && <RankingModal onClose={() => setShowRanking(false)} />}
+      {showImport && (
+        <ImportDialog title="Import Customers from CSV" endpoint="/imports/customers"
+          invalidateKey="customers" columnsHint="companyName, email, phone, industry, paymentTerm"
+          onClose={() => setShowImport(false)} />
+      )}
     </Shell>
   );
 }

@@ -6,9 +6,8 @@ import { requestContext } from '../../common/request-context';
 import { SequenceService } from '../../common/sequence.service';
 import { PaginationDto, paged } from '../../common/dto/pagination.dto';
 import { assertInvoiceStatusTransition } from '../../common/state-machine';
+import { applyPayment, computeTotals, round2 as r2, OverpaymentError, NonPositivePaymentError } from './invoice.calc';
 import { CreateInvoiceDto, RecordPaymentDto, UpdateInvoiceDto } from './invoices.dto';
-
-const r2 = (n: number) => Math.round(n * 100) / 100;
 
 @Injectable()
 export class InvoicesService {
@@ -20,8 +19,7 @@ export class InvoicesService {
 
   /** subtotal + tax, computed server-side so the client can't send an arbitrary total. */
   private totals(subtotal: number, taxPct: number) {
-    const taxAmt = r2(subtotal * (taxPct / 100));
-    return { taxAmt, totalAmount: r2(subtotal + taxAmt) };
+    return computeTotals(subtotal, taxPct);
   }
 
   async list(dto: PaginationDto & { status?: string; customerId?: string; jobId?: string }) {
@@ -84,6 +82,47 @@ export class InvoicesService {
     return invoice;
   }
 
+  /**
+   * Generate a DRAFT invoice from a completed job, pulling the amount straight
+   * from the job's actual revenue and currency so there's no manual re-keying
+   * (and no mismatch between the work done and what gets billed). Guards
+   * against billing the same job twice.
+   */
+  async generateFromJob(jobId: string, userId?: string) {
+    const job = await this.prisma.job.findFirst({
+      where: { id: jobId, deletedAt: null },
+      select: { id: true, jobNumber: true, customerId: true, currency: true, actualRevenue: true, status: true },
+    });
+    if (!job) throw new NotFoundException('Job not found');
+    if (Number(job.actualRevenue) <= 0) {
+      throw new BadRequestException('Job has no actual revenue to invoice — set the job revenue first');
+    }
+    const existing = await this.prisma.invoice.findFirst({
+      where: { jobId, status: { not: 'CANCELLED' } },
+      select: { invoiceNumber: true },
+    });
+    if (existing) {
+      throw new ConflictException(`Job ${job.jobNumber} is already invoiced (${existing.invoiceNumber})`);
+    }
+    const subtotal = Number(job.actualRevenue);
+    const { taxAmt, totalAmount } = this.totals(subtotal, 0);
+    const invoiceNumber = await this.seq.next('invoice');
+    const invoice = await this.prisma.invoice.create({
+      data: {
+        invoiceNumber,
+        jobId: job.id,
+        customerId: job.customerId,
+        currency: job.currency,
+        subtotal,
+        taxPct: 0,
+        taxAmt,
+        totalAmount,
+      },
+    });
+    await this.audit.log({ userId, action: 'CREATE', entityType: 'invoice', entityId: invoice.id, detail: { invoiceNumber, fromJob: job.jobNumber } });
+    return invoice;
+  }
+
   /** Only DRAFT invoices are editable — once ISSUED the commercial trail is locked. */
   async update(id: string, dto: UpdateInvoiceDto, userId?: string) {
     const existing = await this.prisma.invoice.findUnique({ where: { id } });
@@ -141,12 +180,14 @@ export class InvoicesService {
     if (existing.status !== 'ISSUED' && existing.status !== 'PARTIALLY_PAID') {
       throw new BadRequestException(`Cannot record a payment on a ${existing.status} invoice`);
     }
-    const remaining = r2(Number(existing.totalAmount) - Number(existing.amountPaid));
-    if (dto.amount > remaining) {
-      throw new BadRequestException(`Payment of ${dto.amount} exceeds remaining balance of ${remaining}`);
+    let newAmountPaid: number;
+    let newStatus: 'PARTIALLY_PAID' | 'PAID';
+    try {
+      ({ newAmountPaid, newStatus } = applyPayment(Number(existing.totalAmount), Number(existing.amountPaid), dto.amount));
+    } catch (e) {
+      if (e instanceof OverpaymentError || e instanceof NonPositivePaymentError) throw new BadRequestException(e.message);
+      throw e;
     }
-    const newAmountPaid = r2(Number(existing.amountPaid) + dto.amount);
-    const newStatus = newAmountPaid >= Number(existing.totalAmount) ? 'PAID' : 'PARTIALLY_PAID';
     assertInvoiceStatusTransition(existing.status, newStatus);
 
     return this.prisma.$transaction(async (tx) => {

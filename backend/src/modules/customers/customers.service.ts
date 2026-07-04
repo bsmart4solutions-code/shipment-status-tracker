@@ -12,7 +12,7 @@ export class CustomersService {
   constructor(private prisma: PrismaService, private seq: SequenceService, private fx: FxService) {}
 
   async list(dto: PaginationDto & { status?: string }) {
-    const where: Prisma.CustomerWhereInput = {};
+    const where: Prisma.CustomerWhereInput = { deletedAt: null };
     if (dto.search) {
       where.OR = [
         { companyName: { contains: dto.search, mode: 'insensitive' } },
@@ -98,19 +98,18 @@ export class CustomersService {
     }
   }
 
+  /** Soft delete — moves the customer to the recycle bin, restorable. */
   async remove(id: string) {
-    try {
-      await this.prisma.customer.delete({ where: { id } });
-    } catch (e) {
-      rethrowPrisma(e, 'Customer', 'Customer has quotations/jobs/invoices — set status to INACTIVE instead of deleting');
-    }
+    const existing = await this.prisma.customer.findFirst({ where: { id, deletedAt: null } });
+    if (!existing) throw new NotFoundException('Customer not found');
+    await this.prisma.customer.update({ where: { id }, data: { deletedAt: new Date() } });
     return { deleted: true };
   }
 
   /** Automatic customer ranking: weighted revenue + profit + rating, normalized 0-100 (base currency). */
   async ranking() {
     const fx = await this.fx.converter();
-    const customers = await this.prisma.customer.findMany({ where: { status: 'ACTIVE' } });
+    const customers = await this.prisma.customer.findMany({ where: { status: 'ACTIVE', deletedAt: null } });
     const stats = await this.prisma.quotation.groupBy({ by: ['customerId', 'currency'], where: { status: 'WON' }, _sum: { sellingPrice: true, grossProfit: true } });
     const ratings = await this.prisma.customerRating.groupBy({ by: ['customerId'], _avg: { overallScore: true } });
     const statMap = new Map<string, { revenue: number; profit: number }>();

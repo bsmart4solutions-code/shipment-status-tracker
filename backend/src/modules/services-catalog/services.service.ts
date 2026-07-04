@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import { rethrowPrisma } from '../../common/prisma-errors';
 import { SequenceService } from '../../common/sequence.service';
@@ -8,7 +8,7 @@ export class ServicesService {
   constructor(private prisma: PrismaService, private seq: SequenceService) {}
 
   list() {
-    return this.prisma.service.findMany({ orderBy: { name: 'asc' }, include: { _count: { select: { rates: true } } } });
+    return this.prisma.service.findMany({ where: { deletedAt: null }, orderBy: { name: 'asc' }, include: { _count: { select: { rates: true } } } });
   }
 
   async create(name: string, description?: string) {
@@ -24,12 +24,11 @@ export class ServicesService {
     }
   }
 
+  /** Soft delete — moves the service to the recycle bin, restorable. */
   async remove(id: string) {
-    try {
-      await this.prisma.service.delete({ where: { id } });
-    } catch (e) {
-      rethrowPrisma(e, 'Service', 'Service has vendor rates or is used on quotations — set status to INACTIVE instead of deleting');
-    }
+    const existing = await this.prisma.service.findFirst({ where: { id, deletedAt: null } });
+    if (!existing) throw new NotFoundException('Service not found');
+    await this.prisma.service.update({ where: { id }, data: { deletedAt: new Date() } });
     return { deleted: true };
   }
 }
