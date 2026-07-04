@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
+import { rethrowPrisma } from '../../common/prisma-errors';
 import { SettingsService } from '../../common/settings.service';
 import { PaginationDto, paged } from '../../common/dto/pagination.dto';
 import { CompareRatesDto, CreateRateDto, UpdateRateDto } from './rates.dto';
@@ -41,19 +42,23 @@ export class RatesService {
     });
   }
 
-  update(id: string, dto: UpdateRateDto) {
+  async update(id: string, dto: UpdateRateDto) {
     const data: Record<string, unknown> = { ...dto };
     if (dto.effectiveDate) data.effectiveDate = new Date(dto.effectiveDate);
     if (dto.expiryDate !== undefined) data.expiryDate = dto.expiryDate ? new Date(dto.expiryDate) : null;
-    return this.prisma.vendorServiceRate.update({ where: { id }, data }).catch(() => {
-      throw new NotFoundException('Rate not found');
-    });
+    try {
+      return await this.prisma.vendorServiceRate.update({ where: { id }, data });
+    } catch (e) {
+      rethrowPrisma(e, 'Rate');
+    }
   }
 
   async remove(id: string) {
-    await this.prisma.vendorServiceRate.delete({ where: { id } }).catch(() => {
-      throw new NotFoundException('Rate not found');
-    });
+    try {
+      await this.prisma.vendorServiceRate.delete({ where: { id } });
+    } catch (e) {
+      rethrowPrisma(e, 'Rate');
+    }
     return { deleted: true };
   }
 

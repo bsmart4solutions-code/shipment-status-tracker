@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
+import { rethrowPrisma } from '../../common/prisma-errors';
 import { SequenceService } from '../../common/sequence.service';
 
 @Injectable()
@@ -15,16 +16,20 @@ export class ServicesService {
     return this.prisma.service.create({ data: { name, description, code } });
   }
 
-  update(id: string, data: { name?: string; description?: string; status?: 'ACTIVE' | 'INACTIVE' }) {
-    return this.prisma.service.update({ where: { id }, data }).catch(() => {
-      throw new NotFoundException('Service not found');
-    });
+  async update(id: string, data: { name?: string; description?: string; status?: 'ACTIVE' | 'INACTIVE' }) {
+    try {
+      return await this.prisma.service.update({ where: { id }, data });
+    } catch (e) {
+      rethrowPrisma(e, 'Service');
+    }
   }
 
   async remove(id: string) {
-    await this.prisma.service.delete({ where: { id } }).catch(() => {
-      throw new NotFoundException('Service not found');
-    });
+    try {
+      await this.prisma.service.delete({ where: { id } });
+    } catch (e) {
+      rethrowPrisma(e, 'Service', 'Service has vendor rates or is used on quotations — set status to INACTIVE instead of deleting');
+    }
     return { deleted: true };
   }
 }

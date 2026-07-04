@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
+import { rethrowPrisma } from '../../common/prisma-errors';
 import { SequenceService } from '../../common/sequence.service';
 import { SettingsService } from '../../common/settings.service';
 import { PaginationDto, paged } from '../../common/dto/pagination.dto';
@@ -279,9 +280,11 @@ export class QuotationsService {
   }
 
   async remove(id: string, userId?: string) {
-    await this.prisma.quotation.delete({ where: { id } }).catch(() => {
-      throw new NotFoundException('Quotation not found');
-    });
+    try {
+      await this.prisma.quotation.delete({ where: { id } });
+    } catch (e) {
+      rethrowPrisma(e, 'Quotation', 'Quotation was converted to a job — cancel the quotation instead of deleting it');
+    }
     await this.prisma.auditLog.create({ data: { userId, action: 'DELETE', entityType: 'quotation', entityId: id } });
     return { deleted: true };
   }

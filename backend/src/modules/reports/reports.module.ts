@@ -3,6 +3,7 @@ import { RequirePermission } from '../../common/decorators/permissions.decorator
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { toCsv } from '../../common/csv.util';
+import { FxService } from '../../common/fx.service';
 import { PrismaService } from '../../common/prisma.service';
 import { PnlModule } from '../pnl/pnl.module';
 import { PnlFilter, PnlService } from '../pnl/pnl.service';
@@ -18,7 +19,7 @@ import { RatesService } from '../rates/rates.service';
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('reports')
 class ReportsController {
-  constructor(private prisma: PrismaService, private pnl: PnlService, private rates: RatesService) {}
+  constructor(private prisma: PrismaService, private pnl: PnlService, private rates: RatesService, private fx: FxService) {}
 
   @Get(':type/export')
   @RequirePermission('reports.read')
@@ -64,12 +65,19 @@ class ReportsController {
   }
 
   private async customers() {
+    const fx = await this.fx.converter();
     const rows = await this.prisma.customer.findMany({ orderBy: { companyName: 'asc' } });
-    const stats = await this.prisma.quotation.groupBy({ by: ['customerId'], where: { status: 'WON' }, _sum: { sellingPrice: true, grossProfit: true } });
-    const map = new Map(stats.map((s) => [s.customerId, s]));
+    const stats = await this.prisma.quotation.groupBy({ by: ['customerId', 'currency'], where: { status: 'WON' }, _sum: { sellingPrice: true, grossProfit: true } });
+    const map = new Map<string, { revenue: number; profit: number }>();
+    for (const s of stats) {
+      const acc = map.get(s.customerId) ?? { revenue: 0, profit: 0 };
+      acc.revenue += fx.toBase(Number(s._sum.sellingPrice ?? 0), s.currency);
+      acc.profit += fx.toBase(Number(s._sum.grossProfit ?? 0), s.currency);
+      map.set(s.customerId, acc);
+    }
     return toCsv(
-      ['Code', 'Company', 'PIC', 'Phone', 'Email', 'Industry', 'Payment Term', 'Credit Limit', 'Status', 'Priority', 'Revenue', 'Profit'],
-      rows.map((c) => [c.code, c.companyName, c.pic, c.phone, c.email, c.industry, c.paymentTerm, String(c.creditLimit ?? ''), c.status, c.priority, String(map.get(c.id)?._sum.sellingPrice ?? 0), String(map.get(c.id)?._sum.grossProfit ?? 0)]),
+      ['Code', 'Company', 'PIC', 'Phone', 'Email', 'Industry', 'Payment Term', 'Credit Limit', 'Status', 'Priority', `Revenue (${fx.baseCurrency})`, `Profit (${fx.baseCurrency})`],
+      rows.map((c) => [c.code, c.companyName, c.pic, c.phone, c.email, c.industry, c.paymentTerm, String(c.creditLimit ?? ''), c.status, c.priority, (map.get(c.id)?.revenue ?? 0).toFixed(2), (map.get(c.id)?.profit ?? 0).toFixed(2)]),
     );
   }
 
@@ -92,16 +100,23 @@ class ReportsController {
   }
 
   private async customerProfitability() {
-    const stats = await this.prisma.quotation.groupBy({ by: ['customerId'], where: { status: 'WON' }, _sum: { sellingPrice: true, grossProfit: true, taxAmt: true }, _count: true });
-    const customers = await this.prisma.customer.findMany({ where: { id: { in: stats.map((s) => s.customerId) } }, select: { id: true, code: true, companyName: true } });
+    const fx = await this.fx.converter();
+    const stats = await this.prisma.quotation.groupBy({ by: ['customerId', 'currency'], where: { status: 'WON' }, _sum: { sellingPrice: true, grossProfit: true, taxAmt: true }, _count: true });
+    const byCustomer = new Map<string, { revenue: number; gp: number; count: number }>();
+    for (const s of stats) {
+      const acc = byCustomer.get(s.customerId) ?? { revenue: 0, gp: 0, count: 0 };
+      acc.revenue += fx.toBase(Number(s._sum.sellingPrice ?? 0) - Number(s._sum.taxAmt ?? 0), s.currency);
+      acc.gp += fx.toBase(Number(s._sum.grossProfit ?? 0), s.currency);
+      acc.count += s._count;
+      byCustomer.set(s.customerId, acc);
+    }
+    const customers = await this.prisma.customer.findMany({ where: { id: { in: [...byCustomer.keys()] } }, select: { id: true, code: true, companyName: true } });
     const map = new Map(customers.map((c) => [c.id, c]));
     return toCsv(
-      ['Code', 'Customer', 'Won Quotations', 'Revenue', 'Gross Profit', 'Margin %'],
-      stats
-        .map((s) => {
-          const revenue = Number(s._sum.sellingPrice ?? 0) - Number(s._sum.taxAmt ?? 0);
-          const gp = Number(s._sum.grossProfit ?? 0);
-          return [map.get(s.customerId)?.code ?? '', map.get(s.customerId)?.companyName ?? '?', s._count, revenue.toFixed(2), gp.toFixed(2), revenue > 0 ? ((gp / revenue) * 100).toFixed(2) : '0'];
+      ['Code', 'Customer', 'Won Quotations', `Revenue (${fx.baseCurrency})`, `Gross Profit (${fx.baseCurrency})`, 'Margin %'],
+      [...byCustomer.entries()]
+        .map(([customerId, s]) => {
+          return [map.get(customerId)?.code ?? '', map.get(customerId)?.companyName ?? '?', s.count, s.revenue.toFixed(2), s.gp.toFixed(2), s.revenue > 0 ? ((s.gp / s.revenue) * 100).toFixed(2) : '0'];
         })
         .sort((a, b) => Number(b[3]) - Number(a[3])),
     );

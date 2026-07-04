@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../common/prisma.service';
+import { rethrowPrisma } from '../../common/prisma-errors';
 import { CreateUserDto, UpdateUserDto } from './users.dto';
 
 const SAFE_SELECT = { id: true, email: true, fullName: true, isActive: true, roleId: true, role: { select: { name: true } }, createdAt: true };
@@ -25,8 +26,10 @@ export class UsersService {
     const data: Record<string, unknown> = { fullName: dto.fullName, roleId: dto.roleId, isActive: dto.isActive };
     if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, 10);
     Object.keys(data).forEach((k) => data[k] === undefined && delete data[k]);
-    const user = await this.prisma.user.update({ where: { id }, data, select: SAFE_SELECT }).catch(() => null);
-    if (!user) throw new NotFoundException('User not found');
-    return user;
+    try {
+      return await this.prisma.user.update({ where: { id }, data, select: SAFE_SELECT });
+    } catch (e) {
+      rethrowPrisma(e, 'User', 'Referenced role does not exist');
+    }
   }
 }

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { FxConverter, FxService } from '../../common/fx.service';
 import { PrismaService } from '../../common/prisma.service';
 
 export interface PnlFilter {
@@ -18,14 +19,18 @@ export interface PnlFilter {
  * (execution view). Grouping happens in memory after a single filtered
  * fetch — datasets are per-period so this stays fast; can move to raw SQL
  * GROUP BY when volume demands.
+ *
+ * All amounts are converted to the base currency before bucketing —
+ * documents carry their own currency and must never be summed raw.
  */
 @Injectable()
 export class PnlService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private fx: FxService) {}
 
   async report(filter: PnlFilter) {
-    if (filter.source === 'jobs') return this.fromJobs(filter);
-    return this.fromQuotations(filter);
+    const fx = await this.fx.converter();
+    const result = filter.source === 'jobs' ? await this.fromJobs(filter, fx) : await this.fromQuotations(filter, fx);
+    return { ...result, baseCurrency: fx.baseCurrency, fxWarning: this.fx.warning(fx) };
   }
 
   private periodKey(date: Date, groupBy: string): string {
@@ -36,7 +41,7 @@ export class PnlService {
     return `${y}-${String(m).padStart(2, '0')}`;
   }
 
-  private async fromQuotations(filter: PnlFilter) {
+  private async fromQuotations(filter: PnlFilter, fx: FxConverter) {
     const groupBy = filter.groupBy ?? 'month';
     // vendor/service grouping needs item granularity; the rest can use headers
     const itemLevel = groupBy === 'vendor' || groupBy === 'service' || filter.vendorId || filter.serviceId;
@@ -64,8 +69,8 @@ export class PnlService {
           this.periodKey(q.quoteDate, groupBy);
         const b = buckets.get(key) ?? { revenue: 0, cost: 0, count: 0 };
         // revenue = net sell before tax (sellingPrice − taxAmt) for a true margin view
-        b.revenue += Number(q.sellingPrice) - Number(q.taxAmt);
-        b.cost += Number(q.totalCost);
+        b.revenue += fx.toBase(Number(q.sellingPrice) - Number(q.taxAmt), q.currency);
+        b.cost += fx.toBase(Number(q.totalCost), q.currency);
         b.count += 1;
         buckets.set(key, b);
       }
@@ -79,7 +84,7 @@ export class PnlService {
         serviceId: filter.serviceId || undefined,
       },
       include: {
-        quotation: { select: { quoteDate: true, customer: { select: { companyName: true } }, salesPerson: { select: { fullName: true } } } },
+        quotation: { select: { quoteDate: true, currency: true, customer: { select: { companyName: true } }, salesPerson: { select: { fullName: true } } } },
         vendor: { select: { name: true } },
         service: { select: { name: true } },
       },
@@ -93,15 +98,15 @@ export class PnlService {
         groupBy === 'salesperson' ? (i.quotation.salesPerson?.fullName ?? '(Unassigned)') :
         this.periodKey(i.quotation.quoteDate, groupBy);
       const b = buckets.get(key) ?? { revenue: 0, cost: 0, count: 0 };
-      b.revenue += Number(i.totalSell);
-      b.cost += Number(i.totalCost);
+      b.revenue += fx.toBase(Number(i.totalSell), i.quotation.currency);
+      b.cost += fx.toBase(Number(i.totalCost), i.quotation.currency);
       b.count += 1;
       buckets.set(key, b);
     }
     return this.toRows(buckets);
   }
 
-  private async fromJobs(filter: PnlFilter) {
+  private async fromJobs(filter: PnlFilter, fx: FxConverter) {
     const groupBy = filter.groupBy ?? 'month';
     const jobs = await this.prisma.job.findMany({
       where: {
@@ -123,8 +128,8 @@ export class PnlService {
         groupBy === 'vendor' ? (j.vendor?.name ?? '(No vendor)') :
         this.periodKey(date, groupBy);
       const b = buckets.get(key) ?? { revenue: 0, cost: 0, count: 0 };
-      b.revenue += Number(j.actualRevenue);
-      b.cost += Number(j.actualCost);
+      b.revenue += fx.toBase(Number(j.actualRevenue), j.currency);
+      b.cost += fx.toBase(Number(j.actualCost), j.currency);
       b.count += 1;
       buckets.set(key, b);
     }

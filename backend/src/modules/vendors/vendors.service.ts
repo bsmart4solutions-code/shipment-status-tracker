@@ -1,13 +1,30 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { FxService } from '../../common/fx.service';
 import { PrismaService } from '../../common/prisma.service';
+import { rethrowPrisma } from '../../common/prisma-errors';
 import { SequenceService } from '../../common/sequence.service';
 import { PaginationDto, paged } from '../../common/dto/pagination.dto';
 import { CreateVendorDto, UpdateVendorDto } from './vendors.dto';
 
 @Injectable()
 export class VendorsService {
-  constructor(private prisma: PrismaService, private seq: SequenceService) {}
+  constructor(private prisma: PrismaService, private seq: SequenceService, private fx: FxService) {}
+
+  /** Total WON spend per vendor in base currency (item totals are in the parent quotation's currency). */
+  private async spendByVendor(vendorId?: string): Promise<Map<string, number>> {
+    const fx = await this.fx.converter();
+    const items = await this.prisma.quotationItem.findMany({
+      where: { vendorId: vendorId ?? { not: null }, quotation: { status: 'WON' } },
+      select: { vendorId: true, totalCost: true, quotation: { select: { currency: true } } },
+    });
+    const map = new Map<string, number>();
+    for (const it of items) {
+      const id = it.vendorId as string;
+      map.set(id, (map.get(id) ?? 0) + fx.toBase(Number(it.totalCost), it.quotation.currency));
+    }
+    return map;
+  }
 
   async list(dto: PaginationDto & { status?: string }) {
     const where: Prisma.VendorWhereInput = {};
@@ -40,9 +57,9 @@ export class VendorsService {
     if (!vendor) throw new NotFoundException('Vendor not found');
     const [avg, spend] = await Promise.all([
       this.prisma.vendorRating.aggregate({ where: { vendorId: id }, _avg: { overallScore: true } }),
-      this.prisma.quotationItem.aggregate({ where: { vendorId: id, quotation: { status: 'WON' } }, _sum: { totalCost: true } }),
+      this.spendByVendor(id),
     ]);
-    return { ...vendor, rating: avg._avg.overallScore != null ? Number(avg._avg.overallScore) : null, totalSpend: Number(spend._sum.totalCost ?? 0) };
+    return { ...vendor, rating: avg._avg.overallScore != null ? Number(avg._avg.overallScore) : null, totalSpend: spend.get(id) ?? 0 };
   }
 
   async create(dto: CreateVendorDto) {
@@ -50,27 +67,30 @@ export class VendorsService {
     return this.prisma.vendor.create({ data: { ...dto, code } });
   }
 
-  update(id: string, dto: UpdateVendorDto) {
-    return this.prisma.vendor.update({ where: { id }, data: dto }).catch(() => {
-      throw new NotFoundException('Vendor not found');
-    });
+  async update(id: string, dto: UpdateVendorDto) {
+    try {
+      return await this.prisma.vendor.update({ where: { id }, data: dto });
+    } catch (e) {
+      rethrowPrisma(e, 'Vendor');
+    }
   }
 
   async remove(id: string) {
-    await this.prisma.vendor.delete({ where: { id } }).catch(() => {
-      throw new NotFoundException('Vendor not found');
-    });
+    try {
+      await this.prisma.vendor.delete({ where: { id } });
+    } catch (e) {
+      rethrowPrisma(e, 'Vendor', 'Vendor has rates/ratings/jobs — set status to INACTIVE instead of deleting');
+    }
     return { deleted: true };
   }
 
-  /** Automatic vendor ranking: rating (50) + spend share (30) + preferred bonus (20). */
+  /** Automatic vendor ranking: rating (50) + spend share (30) + preferred bonus (20). Spend in base currency. */
   async ranking() {
     const vendors = await this.prisma.vendor.findMany({ where: { status: 'ACTIVE' } });
     const ratings = await this.prisma.vendorRating.groupBy({ by: ['vendorId'], _avg: { overallScore: true } });
-    const spend = await this.prisma.quotationItem.groupBy({ by: ['vendorId'], where: { quotation: { status: 'WON' }, vendorId: { not: null } }, _sum: { totalCost: true } });
+    const spendMap = await this.spendByVendor();
     const rateMap = new Map(ratings.map((r) => [r.vendorId, Number(r._avg.overallScore ?? 0)]));
-    const spendMap = new Map(spend.map((s) => [s.vendorId, Number(s._sum.totalCost ?? 0)]));
-    const maxSpend = Math.max(1, ...spend.map((s) => Number(s._sum.totalCost ?? 0)));
+    const maxSpend = Math.max(1, ...spendMap.values());
     return vendors
       .map((v) => {
         const rating = rateMap.get(v.id) ?? 0;
