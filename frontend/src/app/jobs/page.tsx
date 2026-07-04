@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { MapPin, Plus } from 'lucide-react';
+import { MapPin, Plus, Receipt } from 'lucide-react';
 import { Shell } from '@/components/shell';
 import { ErrorText, Modal, Pagination, StatusBadge, Table } from '@/components/ui';
 import { api, hasPermission } from '@/lib/api';
@@ -32,10 +32,21 @@ export default function JobsPage() {
       `/jobs?page=${page}&search=${encodeURIComponent(search)}${status ? `&status=${status}` : ''}`),
   });
 
+  const qc = useQueryClient();
   const canWrite = hasPermission('jobs.write');
+  const canInvoice = hasPermission('invoices.write');
+
+  const genInvoice = useMutation({
+    mutationFn: (jobId: string) => api<{ invoiceNumber: string }>(`/invoices/from-job/${jobId}`, { method: 'POST' }),
+    onSuccess: (inv) => {
+      qc.invalidateQueries({ queryKey: ['jobs'] });
+      alert(`Draft invoice ${inv.invoiceNumber} created. Find it under Invoices.`);
+    },
+  });
 
   return (
     <Shell title="Jobs / Shipments" actions={canWrite ? <button className="btn-primary" onClick={() => setEditing('new')}><Plus size={15} /> New Job</button> : undefined}>
+      <ErrorText error={genInvoice.error} />
       <div className="flex flex-wrap gap-2 mb-4">
         <input className="input max-w-md" placeholder="Search job #, tracking #, customer…"
           value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
@@ -63,6 +74,13 @@ export default function JobsPage() {
               <div className="flex gap-2">
                 <button className="text-primary hover:underline text-sm" onClick={() => setTracking(j)}>Track</button>
                 {canWrite && <button className="text-primary hover:underline text-sm" onClick={() => setEditing(j)}>Edit</button>}
+                {canInvoice && Number(j.actualRevenue) > 0 && (
+                  <button className="text-primary hover:underline text-sm inline-flex items-center gap-1"
+                    disabled={genInvoice.isPending}
+                    onClick={() => { if (confirm(`Generate a draft invoice for ${j.jobNumber} (${fmtMoney(j.actualRevenue, j.currency)})?`)) genInvoice.mutate(j.id); }}>
+                    <Receipt size={13} /> Invoice
+                  </button>
+                )}
               </div>
             </td>
           </tr>

@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
+import { History, Plus, Trash2 } from 'lucide-react';
 import { Shell } from '@/components/shell';
 import { Card, ErrorText, GpBadge, Modal, Pagination, StatusBadge, Table } from '@/components/ui';
 import { api, downloadCsv, hasPermission } from '@/lib/api';
@@ -21,6 +21,7 @@ export default function QuotationsPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [showBuilder, setShowBuilder] = useState(false);
+  const [historyFor, setHistoryFor] = useState<QuoteRow | null>(null);
 
   const { data } = useQuery({
     queryKey: ['quotations', page, search, status],
@@ -46,7 +47,7 @@ export default function QuotationsPage() {
         </select>
       </div>
 
-      <Table head={['Quote #', 'Date', 'Customer', 'Sales', 'Valid Until', 'Total Cost', 'Selling Price', 'GP', 'GP %', 'Status']} empty={data?.items.length === 0}>
+      <Table head={['Quote #', 'Date', 'Customer', 'Sales', 'Valid Until', 'Total Cost', 'Selling Price', 'GP', 'GP %', 'Status', '']} empty={data?.items.length === 0}>
         {data?.items.map((q) => (
           <tr key={q.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
             <td className="td font-medium"><Link className="text-primary hover:underline" href={`/quotations/${q.id}`}>{q.quoteNumber}</Link></td>
@@ -59,13 +60,60 @@ export default function QuotationsPage() {
             <td className="td text-emerald-600">{fmtMoney(q.grossProfit, q.currency)}</td>
             <td className="td"><GpBadge pct={q.gpPercent} /></td>
             <td className="td"><StatusBadge status={q.status} /></td>
+            <td className="td">
+              <button className="text-primary hover:underline text-sm inline-flex items-center gap-1" onClick={() => setHistoryFor(q)}>
+                <History size={13} /> History
+              </button>
+            </td>
           </tr>
         ))}
       </Table>
       <div className="mt-3"><Pagination page={page} pageCount={data?.pageCount ?? 1} onChange={setPage} /></div>
 
       {showBuilder && <QuotationBuilder onClose={() => setShowBuilder(false)} />}
+      {historyFor && <RevisionsModal quote={historyFor} onClose={() => setHistoryFor(null)} />}
     </Shell>
+  );
+}
+
+// ─────────────────── Revision history ───────────────────
+
+interface Revision {
+  id: string; revision: number; status: string; sellingPrice: string; grossProfit: string;
+  createdAt: string; createdBy: { fullName: string } | null;
+}
+
+function RevisionsModal({ quote, onClose }: { quote: QuoteRow; onClose: () => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['quotation-revisions', quote.id],
+    queryFn: () => api<Revision[]>(`/quotations/${quote.id}/revisions`),
+  });
+
+  return (
+    <Modal title={`Version history — ${quote.quoteNumber}`} onClose={onClose}>
+      <p className="text-sm text-gray-500 mb-3">
+        A snapshot is saved each time a <strong>sent</strong> quotation is edited, preserving the terms
+        the customer had already seen. The current live version is <StatusBadge status={quote.status} />.
+      </p>
+      {isLoading && <p className="text-sm text-gray-400">Loading…</p>}
+      {data && data.length === 0 && (
+        <p className="text-sm text-gray-400 py-6 text-center">No prior revisions — this quotation hasn&apos;t been edited after being sent.</p>
+      )}
+      {data && data.length > 0 && (
+        <Table head={['Rev', 'Status when saved', 'Selling Price', 'Gross Profit', 'Saved', 'By']}>
+          {data.map((r) => (
+            <tr key={r.id}>
+              <td className="td font-medium">v{r.revision}</td>
+              <td className="td"><StatusBadge status={r.status} /></td>
+              <td className="td">{fmtMoney(r.sellingPrice, quote.currency)}</td>
+              <td className="td text-emerald-600">{fmtMoney(r.grossProfit, quote.currency)}</td>
+              <td className="td text-gray-500">{fmtDate(r.createdAt)}</td>
+              <td className="td text-gray-500">{r.createdBy?.fullName ?? '-'}</td>
+            </tr>
+          ))}
+        </Table>
+      )}
+    </Modal>
   );
 }
 

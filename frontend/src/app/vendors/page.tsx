@@ -5,9 +5,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus, Star, Trophy } from 'lucide-react';
+import { Plus, Star, Trophy, Upload } from 'lucide-react';
 import { Shell } from '@/components/shell';
 import { ErrorText, GpBadge, Modal, Pagination, StatusBadge, Table } from '@/components/ui';
+import { ImportDialog } from '@/components/import-dialog';
 import { api, downloadCsv, hasPermission } from '@/lib/api';
 import { fmtMoney } from '@/lib/utils';
 
@@ -46,6 +47,7 @@ export default function VendorsPage() {
   const [editing, setEditing] = useState<Vendor | 'new' | null>(null);
   const [rating, setRating] = useState<Vendor | null>(null);
   const [showRanking, setShowRanking] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   const { data } = useQuery({
     queryKey: ['vendors', page, search],
@@ -64,6 +66,7 @@ export default function VendorsPage() {
       <div className="flex gap-2">
         <button className="btn-ghost" onClick={() => setShowRanking(true)}><Trophy size={15} /> Ranking</button>
         <button className="btn-ghost" onClick={() => downloadCsv('/reports/vendors/export', 'vendors.csv')}>Export CSV</button>
+        {canWrite && <button className="btn-ghost" onClick={() => setShowImport(true)}><Upload size={15} /> Import CSV</button>}
         {canWrite && <button className="btn-primary" onClick={() => setEditing('new')}><Plus size={15} /> New Vendor</button>}
       </div>
     }>
@@ -100,6 +103,11 @@ export default function VendorsPage() {
       {editing && <VendorModal vendor={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {rating && <RatingModal vendor={rating} onClose={() => setRating(null)} />}
       {showRanking && <RankingModal onClose={() => setShowRanking(false)} />}
+      {showImport && (
+        <ImportDialog title="Import Vendors from CSV" endpoint="/imports/vendors"
+          invalidateKey="vendors" columnsHint="name, email, phone, contactPerson, paymentTerm"
+          onClose={() => setShowImport(false)} />
+      )}
     </Shell>
   );
 }
