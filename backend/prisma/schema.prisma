@@ -42,6 +42,7 @@ model User {
   notifications     Notification[]
   jobTrackingEvents JobTrackingEvent[]
   invoicePayments   InvoicePayment[]
+  quotationRevisions QuotationRevision[]
 
   @@map("users")
 }
@@ -97,6 +98,7 @@ model Customer {
   status       EntityStatus @default(ACTIVE)
   priority     Int          @default(3) // 1 highest .. 5 lowest
   notes        String?
+  deletedAt    DateTime? // soft delete — non-null means in the recycle bin
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
@@ -106,6 +108,7 @@ model Customer {
   invoices   Invoice[]
 
   @@index([companyName])
+  @@index([deletedAt])
   @@map("customers")
 }
 
@@ -121,6 +124,7 @@ model Vendor {
   status        EntityStatus @default(ACTIVE)
   isPreferred   Boolean      @default(false)
   notes         String?
+  deletedAt     DateTime? // soft delete — non-null means in the recycle bin
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
@@ -130,6 +134,7 @@ model Vendor {
   jobs           Job[]
 
   @@index([name])
+  @@index([deletedAt])
   @@map("vendors")
 }
 
@@ -139,11 +144,13 @@ model Service {
   name        String       @unique // Air Freight, Sea Freight, ...
   description String?
   status      EntityStatus @default(ACTIVE)
+  deletedAt   DateTime? // soft delete — non-null means in the recycle bin
   createdAt   DateTime     @default(now())
 
   rates          VendorServiceRate[]
   quotationItems QuotationItem[]
 
+  @@index([deletedAt])
   @@map("services")
 }
 
@@ -222,15 +229,18 @@ model Quotation {
   grossProfit   Decimal         @default(0) @db.Decimal(14, 2)
   gpPercent     Decimal         @default(0) @db.Decimal(7, 4)
   remark        String?
+  deletedAt     DateTime? // soft delete — non-null means in the recycle bin
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
-  items QuotationItem[]
-  jobs  Job[]
+  items     QuotationItem[]
+  jobs      Job[]
+  revisions QuotationRevision[]
 
   @@index([customerId])
   @@index([status])
   @@index([salesPersonId])
+  @@index([deletedAt])
   @@map("quotations")
 }
 
@@ -264,6 +274,27 @@ model QuotationItem {
   @@map("quotation_items")
 }
 
+// Immutable snapshot of a quotation's commercial terms taken before an edit,
+// so a quote that was already SENT/WON keeps a record of exactly what the
+// customer saw. `snapshot` holds the full header + line items as JSON.
+model QuotationRevision {
+  id           String    @id @default(uuid())
+  quotationId  String
+  quotation    Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  revision     Int // 1-based, increments per quotation
+  status       String // the quotation status at snapshot time
+  sellingPrice Decimal   @db.Decimal(14, 2)
+  grossProfit  Decimal   @db.Decimal(14, 2)
+  snapshot     Json // { header: {...}, items: [...] }
+  createdById  String?
+  createdBy    User?     @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt    DateTime  @default(now())
+
+  @@unique([quotationId, revision])
+  @@index([quotationId])
+  @@map("quotation_revisions")
+}
+
 // ─────────────────────────── Jobs / Shipments ───────────────────────────
 
 enum JobStatus {
@@ -295,6 +326,7 @@ model Job {
   profit         Decimal   @default(0) @db.Decimal(14, 2)
   currency       String    @default("MYR")
   notes          String?
+  deletedAt      DateTime? // soft delete — non-null means in the recycle bin
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -308,6 +340,7 @@ model Job {
   @@index([customerId])
   @@index([status])
   @@index([vendorId])
+  @@index([deletedAt])
   @@map("jobs")
 }
 

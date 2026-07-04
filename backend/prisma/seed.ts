@@ -11,7 +11,7 @@ const prisma = new PrismaClient();
 const PERMISSION_GROUPS = [
   'customers', 'vendors', 'services', 'rates', 'quotations', 'jobs',
   'ratings', 'reports', 'dashboard', 'settings', 'users', 'notifications',
-  'invoices',
+  'invoices', 'recycle',
 ];
 
 const ROLE_MATRIX: Record<string, string[]> = {
@@ -22,6 +22,7 @@ const ROLE_MATRIX: Record<string, string[]> = {
     'quotations.read', 'quotations.write', 'jobs.read', 'jobs.write',
     'ratings.read', 'ratings.write', 'reports.read', 'dashboard.read',
     'notifications.read', 'invoices.read', 'invoices.write',
+    'recycle.read', 'recycle.write',
   ],
   Sales: [
     'customers.read', 'customers.write', 'vendors.read', 'services.read',

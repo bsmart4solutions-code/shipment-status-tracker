@@ -28,6 +28,8 @@ export const PERM = {
   USERS_WRITE: 'users.write',
   SETTINGS_READ: 'settings.read',
   SETTINGS_WRITE: 'settings.write',
+  RECYCLE_READ: 'recycle.read',
+  RECYCLE_WRITE: 'recycle.write',
 } as const;
 
 export type PermissionCode = (typeof PERM)[keyof typeof PERM];

@@ -12,7 +12,7 @@ export class JobsService {
   constructor(private prisma: PrismaService, private seq: SequenceService) {}
 
   async list(dto: PaginationDto & { status?: string; customerId?: string; vendorId?: string; origin?: string; destination?: string }) {
-    const where: Prisma.JobWhereInput = {};
+    const where: Prisma.JobWhereInput = { deletedAt: null };
     if (dto.search) {
       where.OR = [
         { jobNumber: { contains: dto.search, mode: 'insensitive' } },
@@ -133,12 +133,11 @@ export class JobsService {
     };
   }
 
+  /** Soft delete — moves the job to the recycle bin, restorable. */
   async remove(id: string) {
-    try {
-      await this.prisma.job.delete({ where: { id } });
-    } catch (e) {
-      rethrowPrisma(e, 'Job', 'Job has invoices — cancel it instead of deleting so the billing trail stays intact');
-    }
+    const existing = await this.prisma.job.findFirst({ where: { id, deletedAt: null } });
+    if (!existing) throw new NotFoundException('Job not found');
+    await this.prisma.job.update({ where: { id }, data: { deletedAt: new Date() } });
     return { deleted: true };
   }
 

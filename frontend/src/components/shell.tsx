@@ -11,7 +11,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
   Bell, FileText, Home, LayoutDashboard, LogOut, Moon, Package, Receipt, Scale,
-  Search, Settings, Ship, Sun, Truck, Users, Wallet, X,
+  Search, Settings, Ship, Sun, Trash2, Truck, Users, Wallet, X,
 } from 'lucide-react';
 import { api, clearSession, getToken, getUser, hasPermission } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -29,6 +29,7 @@ const NAV = [
   { href: '/pnl', label: 'Profit & Loss', icon: Wallet, perm: 'reports.read' },
   { href: '/reports', label: 'Reports', icon: FileText, perm: 'reports.read' },
   { href: '/settings', label: 'Settings', icon: Settings, perm: 'settings.read' },
+  { href: '/recycle-bin', label: 'Recycle Bin', icon: Trash2, perm: 'recycle.read' },
 ];
 
 interface Notification {

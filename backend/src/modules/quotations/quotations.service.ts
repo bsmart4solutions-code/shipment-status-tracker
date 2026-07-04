@@ -2,7 +2,6 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client';
 import { AuditService } from '../../common/audit.service';
 import { PrismaService } from '../../common/prisma.service';
-import { rethrowPrisma } from '../../common/prisma-errors';
 import { requestContext } from '../../common/request-context';
 import { SequenceService } from '../../common/sequence.service';
 import { SettingsService } from '../../common/settings.service';
@@ -78,7 +77,7 @@ export class QuotationsService {
   }
 
   async list(dto: PaginationDto & { status?: string; customerId?: string; salesPersonId?: string; from?: string; to?: string }) {
-    const where: Prisma.QuotationWhereInput = {};
+    const where: Prisma.QuotationWhereInput = { deletedAt: null };
     if (dto.search) {
       where.OR = [
         { quoteNumber: { contains: dto.search, mode: 'insensitive' } },
@@ -161,6 +160,17 @@ export class QuotationsService {
     return quote;
   }
 
+  /** Version history: prior snapshots of a quotation's terms, newest first. */
+  async revisions(id: string) {
+    const exists = await this.prisma.quotation.findFirst({ where: { id }, select: { id: true } });
+    if (!exists) throw new NotFoundException('Quotation not found');
+    return this.prisma.quotationRevision.findMany({
+      where: { quotationId: id },
+      orderBy: { revision: 'desc' },
+      include: { createdBy: { select: { fullName: true } } },
+    });
+  }
+
   /** Full update: replaces items and re-runs the costing engine. */
   async update(id: string, dto: UpdateQuotationDto, userId?: string) {
     const existing = await this.prisma.quotation.findUnique({ where: { id } });
@@ -182,6 +192,24 @@ export class QuotationsService {
     };
 
     return this.prisma.$transaction(async (tx) => {
+      // Snapshot the terms a customer has already seen before overwriting them.
+      // Only SENT quotes need this — a DRAFT was never shared. The snapshot
+      // captures the full header + line items as they stand right now.
+      if (existing.status === 'SENT') {
+        const priorItems = await tx.quotationItem.findMany({ where: { quotationId: id }, orderBy: { sortOrder: 'asc' } });
+        const last = await tx.quotationRevision.findFirst({ where: { quotationId: id }, orderBy: { revision: 'desc' }, select: { revision: true } });
+        await tx.quotationRevision.create({
+          data: {
+            quotationId: id,
+            revision: (last?.revision ?? 0) + 1,
+            status: existing.status,
+            sellingPrice: existing.sellingPrice,
+            grossProfit: existing.grossProfit,
+            snapshot: JSON.parse(JSON.stringify({ header: existing, items: priorItems })),
+            createdById: userId,
+          },
+        });
+      }
       if (items) {
         await tx.quotationItem.deleteMany({ where: { quotationId: id } });
         await tx.quotationItem.createMany({ data: items.map(({ _result, ...item }) => ({ ...item, quotationId: id })) });
@@ -284,12 +312,11 @@ export class QuotationsService {
     }
   }
 
+  /** Soft delete — moves the quotation to the recycle bin, restorable. */
   async remove(id: string, userId?: string) {
-    try {
-      await this.prisma.quotation.delete({ where: { id } });
-    } catch (e) {
-      rethrowPrisma(e, 'Quotation', 'Quotation was converted to a job — cancel the quotation instead of deleting it');
-    }
+    const existing = await this.prisma.quotation.findFirst({ where: { id, deletedAt: null } });
+    if (!existing) throw new NotFoundException('Quotation not found');
+    await this.prisma.quotation.update({ where: { id }, data: { deletedAt: new Date() } });
     await this.audit.log({ userId, action: 'DELETE', entityType: 'quotation', entityId: id });
     return { deleted: true };
   }

@@ -33,6 +33,11 @@ export class InvoicesController {
     return this.invoices.create(dto, user.id);
   }
 
+  @Post('from-job/:jobId') @RequirePermission('invoices.write')
+  generateFromJob(@Param('jobId') jobId: string, @CurrentUser() user: { id: string }) {
+    return this.invoices.generateFromJob(jobId, user.id);
+  }
+
   @Patch(':id') @RequirePermission('invoices.write')
   update(@Param('id') id: string, @Body() dto: UpdateInvoiceDto, @CurrentUser() user: { id: string }) {
     return this.invoices.update(id, dto, user.id);

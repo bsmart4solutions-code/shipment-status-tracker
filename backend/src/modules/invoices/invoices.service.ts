@@ -82,6 +82,47 @@ export class InvoicesService {
     return invoice;
   }
 
+  /**
+   * Generate a DRAFT invoice from a completed job, pulling the amount straight
+   * from the job's actual revenue and currency so there's no manual re-keying
+   * (and no mismatch between the work done and what gets billed). Guards
+   * against billing the same job twice.
+   */
+  async generateFromJob(jobId: string, userId?: string) {
+    const job = await this.prisma.job.findFirst({
+      where: { id: jobId, deletedAt: null },
+      select: { id: true, jobNumber: true, customerId: true, currency: true, actualRevenue: true, status: true },
+    });
+    if (!job) throw new NotFoundException('Job not found');
+    if (Number(job.actualRevenue) <= 0) {
+      throw new BadRequestException('Job has no actual revenue to invoice — set the job revenue first');
+    }
+    const existing = await this.prisma.invoice.findFirst({
+      where: { jobId, status: { not: 'CANCELLED' } },
+      select: { invoiceNumber: true },
+    });
+    if (existing) {
+      throw new ConflictException(`Job ${job.jobNumber} is already invoiced (${existing.invoiceNumber})`);
+    }
+    const subtotal = Number(job.actualRevenue);
+    const { taxAmt, totalAmount } = this.totals(subtotal, 0);
+    const invoiceNumber = await this.seq.next('invoice');
+    const invoice = await this.prisma.invoice.create({
+      data: {
+        invoiceNumber,
+        jobId: job.id,
+        customerId: job.customerId,
+        currency: job.currency,
+        subtotal,
+        taxPct: 0,
+        taxAmt,
+        totalAmount,
+      },
+    });
+    await this.audit.log({ userId, action: 'CREATE', entityType: 'invoice', entityId: invoice.id, detail: { invoiceNumber, fromJob: job.jobNumber } });
+    return invoice;
+  }
+
   /** Only DRAFT invoices are editable — once ISSUED the commercial trail is locked. */
   async update(id: string, dto: UpdateInvoiceDto, userId?: string) {
     const existing = await this.prisma.invoice.findUnique({ where: { id } });

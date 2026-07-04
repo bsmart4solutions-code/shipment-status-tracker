@@ -26,6 +26,8 @@ import { MetricsMiddleware } from './common/middleware/metrics.middleware';
 import { CustomThrottlerGuard } from './common/guards/rate-limit.guard';
 import { HealthModule } from './modules/health/health.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
+import { RecycleBinModule } from './modules/recycle-bin/recycle-bin.module';
+import { ImportsModule } from './modules/imports/imports.module';
 
 @Module({
   imports: [
@@ -54,6 +56,8 @@ import { InvoicesModule } from './modules/invoices/invoices.module';
     SettingsApiModule,
     HealthModule,
     InvoicesModule,
+    RecycleBinModule,
+    ImportsModule,
   ],
   providers: [
     {

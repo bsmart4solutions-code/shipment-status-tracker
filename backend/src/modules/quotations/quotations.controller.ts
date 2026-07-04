@@ -27,6 +27,9 @@ export class QuotationsController {
   @Get(':id') @RequirePermission('quotations.read')
   get(@Param('id') id: string) { return this.quotations.get(id); }
 
+  @Get(':id/revisions') @RequirePermission('quotations.read')
+  revisions(@Param('id') id: string) { return this.quotations.revisions(id); }
+
   @Post() @RequirePermission('quotations.write')
   create(@Body() dto: CreateQuotationDto, @CurrentUser() user: { id: string }) {
     return this.quotations.create(dto, user.id);
