@@ -28,3 +28,10 @@ export class AddDocumentDto {
   @IsOptional() @IsString() category?: string;
   @IsOptional() @IsString() url?: string;
 }
+
+export class AddTrackingEventDto {
+  @IsString() status: string;
+  @IsOptional() @IsString() location?: string;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsDateString() occurredAt?: string;
+}

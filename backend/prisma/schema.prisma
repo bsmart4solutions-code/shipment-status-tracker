@@ -32,10 +32,12 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  quotations      Quotation[]      @relation("SalesPerson")
-  vendorRatings   VendorRating[]
-  customerRatings CustomerRating[]
-  notifications   Notification[]
+  quotations        Quotation[]        @relation("SalesPerson")
+  vendorRatings     VendorRating[]
+  customerRatings   CustomerRating[]
+  notifications     Notification[]
+  jobTrackingEvents JobTrackingEvent[]
+  invoicePayments   InvoicePayment[]
 
   @@map("users")
 }
@@ -97,6 +99,7 @@ model Customer {
   quotations Quotation[]
   jobs       Job[]
   ratings    CustomerRating[]
+  invoices   Invoice[]
 
   @@index([companyName])
   @@map("customers")
@@ -287,6 +290,8 @@ model Job {
   updatedAt      DateTime  @updatedAt
 
   documents JobDocument[]
+  tracking  JobTrackingEvent[]
+  invoices  Invoice[]
 
   // One quotation converts to at most one job. NULLs are treated as distinct
   // by Postgres, so manually-created jobs (no quotation) are unaffected.
@@ -294,6 +299,87 @@ model Job {
   @@index([customerId])
   @@index([status])
   @@map("jobs")
+}
+
+enum TrackingEventSource {
+  SYSTEM // auto-recorded on status transition (see state-machine.ts)
+  MANUAL // entered by an operator
+}
+
+// Timeline of a shipment's progress. Job.status is the current state;
+// this table is the history of how it got there, so a Job detail view
+// can show more than just "the current status" — the whole journey.
+model JobTrackingEvent {
+  id          String              @id @default(uuid())
+  jobId       String
+  job         Job                 @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  status      String // free-form label, e.g. job status or a milestone like "Departed origin port"
+  location    String?
+  description String?
+  occurredAt  DateTime            @default(now())
+  source      TrackingEventSource @default(MANUAL)
+  createdById String?
+  createdBy   User?               @relation(fields: [createdById], references: [id])
+  createdAt   DateTime            @default(now())
+
+  @@index([jobId, occurredAt])
+  @@map("job_tracking_events")
+}
+
+// ─────────────────────────── Billing / Invoices ───────────────────────────
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  invoiceNumber String        @unique // auto: INV-2026-0001
+  jobId         String?
+  job           Job?          @relation(fields: [jobId], references: [id])
+  customerId    String
+  customer      Customer      @relation(fields: [customerId], references: [id])
+  currency      String        @default("MYR")
+  subtotal      Decimal       @default(0) @db.Decimal(14, 2)
+  taxPct        Decimal       @default(0) @db.Decimal(7, 4)
+  taxAmt        Decimal       @default(0) @db.Decimal(14, 2)
+  totalAmount   Decimal       @default(0) @db.Decimal(14, 2)
+  // Denormalized running total, kept in sync with payments in the same
+  // transaction (see InvoicesService) — avoids summing payments on every read.
+  amountPaid    Decimal       @default(0) @db.Decimal(14, 2)
+  status        InvoiceStatus @default(DRAFT)
+  issueDate     DateTime      @default(now())
+  dueDate       DateTime?
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  payments InvoicePayment[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("invoices")
+}
+
+model InvoicePayment {
+  id           String   @id @default(uuid())
+  invoiceId    String
+  invoice      Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount       Decimal  @db.Decimal(14, 2)
+  paidAt       DateTime @default(now())
+  method       String? // bank transfer, cheque, cash...
+  reference    String?
+  recordedById String?
+  recordedBy   User?    @relation(fields: [recordedById], references: [id])
+  createdAt    DateTime @default(now())
+
+  @@index([invoiceId])
+  @@map("invoice_payments")
 }
 
 model JobDocument {

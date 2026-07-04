@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { MapPin, Plus } from 'lucide-react';
 import { Shell } from '@/components/shell';
 import { ErrorText, Modal, Pagination, StatusBadge, Table } from '@/components/ui';
 import { api, hasPermission } from '@/lib/api';
@@ -24,6 +24,7 @@ export default function JobsPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [editing, setEditing] = useState<JobRow | 'new' | null>(null);
+  const [tracking, setTracking] = useState<JobRow | null>(null);
 
   const { data } = useQuery({
     queryKey: ['jobs', page, search, status],
@@ -58,14 +59,90 @@ export default function JobsPage() {
             <td className="td">{fmtMoney(j.actualCost, j.currency)}</td>
             <td className={`td font-medium ${Number(j.profit) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmtMoney(j.profit, j.currency)}</td>
             <td className="td"><StatusBadge status={j.status} /></td>
-            <td className="td">{canWrite && <button className="text-primary hover:underline text-sm" onClick={() => setEditing(j)}>Edit</button>}</td>
+            <td className="td">
+              <div className="flex gap-2">
+                <button className="text-primary hover:underline text-sm" onClick={() => setTracking(j)}>Track</button>
+                {canWrite && <button className="text-primary hover:underline text-sm" onClick={() => setEditing(j)}>Edit</button>}
+              </div>
+            </td>
           </tr>
         ))}
       </Table>
       <div className="mt-3"><Pagination page={page} pageCount={data?.pageCount ?? 1} onChange={setPage} /></div>
 
       {editing && <JobModal job={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {tracking && <TrackingModal job={tracking} onClose={() => setTracking(null)} />}
     </Shell>
+  );
+}
+
+interface TrackingEvent {
+  id: string; status: string; location: string | null; description: string | null;
+  occurredAt: string; source: 'SYSTEM' | 'MANUAL'; createdBy: { fullName: string } | null;
+}
+
+function TrackingModal({ job, onClose }: { job: JobRow; onClose: () => void }) {
+  const qc = useQueryClient();
+  const canWrite = hasPermission('jobs.write');
+  const [form, setForm] = useState({ status: job.status, location: '', description: '' });
+
+  const { data: events } = useQuery({
+    queryKey: ['job-tracking', job.id],
+    queryFn: () => api<TrackingEvent[]>(`/jobs/${job.id}/tracking`),
+  });
+
+  const add = useMutation({
+    mutationFn: () => api(`/jobs/${job.id}/tracking`, { method: 'POST', body: JSON.stringify(form) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['job-tracking', job.id] });
+      setForm((f) => ({ ...f, location: '', description: '' }));
+    },
+  });
+
+  return (
+    <Modal title={`Tracking — ${job.jobNumber}`} onClose={onClose}>
+      <div className="space-y-4">
+        <div className="text-sm text-gray-500">{job.origin || '?'} → {job.destination || '?'} · <StatusBadge status={job.status} /></div>
+
+        <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+          {events?.length === 0 && <p className="text-sm text-gray-400">No tracking events yet.</p>}
+          {events?.map((e, i) => (
+            <div key={e.id} className="flex gap-3">
+              <div className="flex flex-col items-center">
+                <div className={`w-2.5 h-2.5 rounded-full mt-1.5 ${e.source === 'SYSTEM' ? 'bg-gray-400' : 'bg-primary'}`} />
+                {i < events.length - 1 && <div className="w-px flex-1 bg-gray-200 dark:bg-gray-700 my-1" />}
+              </div>
+              <div className="pb-3">
+                <div className="text-sm font-medium flex items-center gap-1.5">
+                  {e.location && <MapPin size={12} className="text-gray-400" />}
+                  {e.status}{e.location && <span className="text-gray-500 font-normal">— {e.location}</span>}
+                </div>
+                {e.description && <div className="text-sm text-gray-500">{e.description}</div>}
+                <div className="text-xs text-gray-400 mt-0.5">
+                  {fmtDate(e.occurredAt)} · {e.source === 'SYSTEM' ? 'Auto' : e.createdBy?.fullName ?? 'Manual'}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {canWrite && (
+          <form onSubmit={(e) => { e.preventDefault(); add.mutate(); }} className="border-t border-gray-200 dark:border-gray-800 pt-3 space-y-2">
+            <div className="text-xs text-gray-500 uppercase font-semibold">Add Milestone</div>
+            <div className="grid grid-cols-2 gap-2">
+              <input className="input" placeholder="Status / milestone (e.g. Departed origin port)"
+                value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))} required />
+              <input className="input" placeholder="Location (optional)"
+                value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} />
+            </div>
+            <textarea className="input" rows={2} placeholder="Description (optional)"
+              value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
+            <ErrorText error={add.error} />
+            <button className="btn-primary w-full justify-center" disabled={add.isPending}>Add Event</button>
+          </form>
+        )}
+      </div>
+    </Modal>
   );
 }
 

@@ -11,6 +11,7 @@ import { BadRequestException } from '@nestjs/common';
 
 type QuotationStatus = 'DRAFT' | 'SENT' | 'WON' | 'LOST' | 'CANCELLED';
 type JobStatus = 'OPEN' | 'IN_PROGRESS' | 'ON_HOLD' | 'COMPLETED' | 'CANCELLED';
+type InvoiceStatus = 'DRAFT' | 'ISSUED' | 'PARTIALLY_PAID' | 'PAID' | 'CANCELLED';
 
 const QUOTATION_EDGES: Record<QuotationStatus, Set<QuotationStatus>> = {
   DRAFT: new Set(['DRAFT', 'SENT', 'WON', 'LOST', 'CANCELLED']),
@@ -33,6 +34,16 @@ const JOB_EDGES: Record<JobStatus, Set<JobStatus>> = {
   CANCELLED: new Set(['CANCELLED']),
 };
 
+const INVOICE_EDGES: Record<InvoiceStatus, Set<InvoiceStatus>> = {
+  DRAFT: new Set(['DRAFT', 'ISSUED', 'CANCELLED']),
+  ISSUED: new Set(['ISSUED', 'PARTIALLY_PAID', 'PAID', 'CANCELLED']),
+  PARTIALLY_PAID: new Set(['PARTIALLY_PAID', 'PAID', 'CANCELLED']),
+  // Fully paid is terminal — a correction should be a credit note / reversal,
+  // not silently reopening a settled invoice.
+  PAID: new Set(['PAID']),
+  CANCELLED: new Set(['CANCELLED']),
+};
+
 export function assertQuotationStatusTransition(from: QuotationStatus, to: QuotationStatus): void {
   const allowed = QUOTATION_EDGES[from];
   if (!allowed?.has(to)) {
@@ -44,5 +55,12 @@ export function assertJobStatusTransition(from: JobStatus, to: JobStatus): void 
   const allowed = JOB_EDGES[from];
   if (!allowed?.has(to)) {
     throw new BadRequestException(`Job status cannot change from ${from} to ${to}`);
+  }
+}
+
+export function assertInvoiceStatusTransition(from: InvoiceStatus, to: InvoiceStatus): void {
+  const allowed = INVOICE_EDGES[from];
+  if (!allowed?.has(to)) {
+    throw new BadRequestException(`Invoice status cannot change from ${from} to ${to}`);
   }
 }

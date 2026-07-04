@@ -11,6 +11,7 @@ const prisma = new PrismaClient();
 const PERMISSION_GROUPS = [
   'customers', 'vendors', 'services', 'rates', 'quotations', 'jobs',
   'ratings', 'reports', 'dashboard', 'settings', 'users', 'notifications',
+  'invoices',
 ];
 
 const ROLE_MATRIX: Record<string, string[]> = {
@@ -20,12 +21,12 @@ const ROLE_MATRIX: Record<string, string[]> = {
     'services.read', 'services.write', 'rates.read', 'rates.write',
     'quotations.read', 'quotations.write', 'jobs.read', 'jobs.write',
     'ratings.read', 'ratings.write', 'reports.read', 'dashboard.read',
-    'notifications.read',
+    'notifications.read', 'invoices.read', 'invoices.write',
   ],
   Sales: [
     'customers.read', 'customers.write', 'vendors.read', 'services.read',
     'rates.read', 'quotations.read', 'quotations.write', 'jobs.read',
-    'ratings.read', 'dashboard.read', 'notifications.read',
+    'ratings.read', 'dashboard.read', 'notifications.read', 'invoices.read',
   ],
   Operation: [
     'customers.read', 'vendors.read', 'services.read', 'rates.read',
@@ -35,11 +36,12 @@ const ROLE_MATRIX: Record<string, string[]> = {
   Finance: [
     'customers.read', 'vendors.read', 'services.read', 'rates.read',
     'quotations.read', 'jobs.read', 'reports.read', 'dashboard.read',
-    'notifications.read',
+    'notifications.read', 'invoices.read', 'invoices.write',
   ],
   Viewer: [
     'customers.read', 'vendors.read', 'services.read', 'rates.read',
     'quotations.read', 'jobs.read', 'dashboard.read', 'notifications.read',
+    'invoices.read',
   ],
 };
 
@@ -99,6 +101,7 @@ async function main() {
     { key: 'service', prefix: 'SVC', padding: 4, includeYear: false },
     { key: 'quotation', prefix: 'QT', padding: 4, includeYear: true },
     { key: 'job', prefix: 'JOB', padding: 4, includeYear: true },
+    { key: 'invoice', prefix: 'INV', padding: 4, includeYear: true },
   ];
   for (const s of sequences) {
     await prisma.sequence.upsert({ where: { key: s.key }, update: {}, create: s });

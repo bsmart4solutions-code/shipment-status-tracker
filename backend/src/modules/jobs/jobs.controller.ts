@@ -1,9 +1,10 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
-import { AddDocumentDto, CreateJobDto, UpdateJobDto } from './jobs.dto';
+import { AddDocumentDto, AddTrackingEventDto, CreateJobDto, UpdateJobDto } from './jobs.dto';
 import { JobsService } from './jobs.service';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -40,4 +41,12 @@ export class JobsController {
 
   @Delete('documents/:docId') @RequirePermission('jobs.write')
   removeDocument(@Param('docId') docId: string) { return this.jobs.removeDocument(docId); }
+
+  @Get(':id/tracking') @RequirePermission('jobs.read')
+  listTracking(@Param('id') id: string) { return this.jobs.listTracking(id); }
+
+  @Post(':id/tracking') @RequirePermission('jobs.write')
+  addTrackingEvent(@Param('id') id: string, @Body() dto: AddTrackingEventDto, @CurrentUser() user: { id: string }) {
+    return this.jobs.addTrackingEvent(id, dto, user.id);
+  }
 }
