@@ -29,6 +29,10 @@ model User {
   roleId       String
   role         Role       @relation(fields: [roleId], references: [id])
   isActive     Boolean    @default(true)
+  // Account-level brute-force lockout (IP throttling alone is bypassable
+  // by rotating IPs): N failures lock the account until lockedUntil.
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -160,9 +164,11 @@ enum RateType {
 model VendorServiceRate {
   id            String    @id @default(uuid())
   vendorId      String
-  vendor        Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  // Restrict: rate history feeds historical job-cost audits — deleting a
+  // vendor/service must not silently wipe it. Deactivate the vendor instead.
+  vendor        Vendor    @relation(fields: [vendorId], references: [id], onDelete: Restrict)
   serviceId     String
-  service       Service   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  service       Service   @relation(fields: [serviceId], references: [id], onDelete: Restrict)
   origin        String?
   destination   String?
   country       String?
@@ -224,6 +230,7 @@ model Quotation {
 
   @@index([customerId])
   @@index([status])
+  @@index([salesPersonId])
   @@map("quotations")
 }
 
@@ -252,6 +259,8 @@ model QuotationItem {
   sortOrder    Int       @default(0)
 
   @@index([quotationId])
+  @@index([serviceId])
+  @@index([vendorId])
   @@map("quotation_items")
 }
 
@@ -298,6 +307,7 @@ model Job {
   @@unique([quotationId])
   @@index([customerId])
   @@index([status])
+  @@index([vendorId])
   @@map("jobs")
 }
 
@@ -319,7 +329,9 @@ model JobTrackingEvent {
   occurredAt  DateTime            @default(now())
   source      TrackingEventSource @default(MANUAL)
   createdById String?
-  createdBy   User?               @relation(fields: [createdById], references: [id])
+  // Restrict: this is an accountability trail — a user who recorded events
+  // must be deactivated (isActive=false), never hard-deleted from under it.
+  createdBy   User?               @relation(fields: [createdById], references: [id], onDelete: Restrict)
   createdAt   DateTime            @default(now())
 
   @@index([jobId, occurredAt])
@@ -340,7 +352,9 @@ model Invoice {
   id            String        @id @default(uuid())
   invoiceNumber String        @unique // auto: INV-2026-0001
   jobId         String?
-  job           Job?          @relation(fields: [jobId], references: [id])
+  // Restrict: a job with invoices must not be deletable — cancel it instead,
+  // so the billing trail keeps its link to the work it billed.
+  job           Job?          @relation(fields: [jobId], references: [id], onDelete: Restrict)
   customerId    String
   customer      Customer      @relation(fields: [customerId], references: [id])
   currency      String        @default("MYR")
@@ -363,19 +377,24 @@ model Invoice {
   @@index([customerId])
   @@index([status])
   @@index([dueDate])
+  @@index([jobId])
   @@map("invoices")
 }
 
 model InvoicePayment {
   id           String   @id @default(uuid())
   invoiceId    String
-  invoice      Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  // Restrict: payment records are the cash ledger — an invoice with payments
+  // must never be hard-deleted (cancel/void flows handle corrections).
+  invoice      Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
   amount       Decimal  @db.Decimal(14, 2)
   paidAt       DateTime @default(now())
   method       String? // bank transfer, cheque, cash...
   reference    String?
   recordedById String?
-  recordedBy   User?    @relation(fields: [recordedById], references: [id])
+  // Restrict: who recorded a cash payment must stay resolvable — deactivate
+  // users instead of deleting them.
+  recordedBy   User?    @relation(fields: [recordedById], references: [id], onDelete: Restrict)
   createdAt    DateTime @default(now())
 
   @@index([invoiceId])
@@ -401,7 +420,7 @@ model JobDocument {
 model VendorRating {
   id                  String   @id @default(uuid())
   vendorId            String
-  vendor              Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendor              Vendor   @relation(fields: [vendorId], references: [id], onDelete: Restrict)
   ratedById           String?
   ratedBy             User?    @relation(fields: [ratedById], references: [id])
   price               Int // 1..5
@@ -421,7 +440,7 @@ model VendorRating {
 model CustomerRating {
   id                String   @id @default(uuid())
   customerId        String
-  customer          Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer          Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
   ratedById         String?
   ratedBy           User?    @relation(fields: [ratedById], references: [id])
   paymentSpeed      Int
@@ -495,18 +514,22 @@ model Notification {
   createdAt  DateTime         @default(now())
 
   @@index([userId, isRead])
+  @@index([entityType, entityId])
   @@map("notifications")
 }
 
 model AuditLog {
   id         String   @id @default(uuid())
   userId     String?
-  action     String // CREATE / UPDATE / DELETE / LOGIN / CONVERT ...
+  action     String // CREATE / UPDATE / DELETE / LOGIN / LOGIN_FAILED / PERMISSIONS_CHANGE ...
   entityType String
   entityId   String?
   detail     Json?
+  ip         String? // captured from request context for forensics
+  userAgent  String?
   createdAt  DateTime @default(now())
 
   @@index([entityType, entityId])
+  @@index([action, createdAt])
   @@map("audit_logs")
 }

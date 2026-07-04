@@ -1,5 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from './common/prisma.module';
@@ -19,6 +20,7 @@ import { PnlModule } from './modules/pnl/pnl.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { SettingsApiModule } from './modules/settings/settings.module';
+import { RequestContextMiddleware } from './common/middleware/request-context.middleware';
 import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
 import { MetricsMiddleware } from './common/middleware/metrics.middleware';
 import { CustomThrottlerGuard } from './common/guards/rate-limit.guard';
@@ -28,6 +30,7 @@ import { InvoicesModule } from './modules/invoices/invoices.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
     // Single default throttler: 100 req/min per IP for every route.
     // Stricter limits are set per-route via @Throttle (e.g. auth login:
     // 5 attempts / 15 min), and @SkipThrottle exempts health checks.
@@ -61,6 +64,7 @@ import { InvoicesModule } from './modules/invoices/invoices.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(RequestLoggerMiddleware, MetricsMiddleware).forRoutes('*');
+    // RequestContext first so IP/UA are available to everything downstream.
+    consumer.apply(RequestContextMiddleware, RequestLoggerMiddleware, MetricsMiddleware).forRoutes('*');
   }
 }

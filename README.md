@@ -22,7 +22,7 @@ Full guide: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 | `frontend/` | Next.js 14 · TypeScript · TailwindCSS · React Query · RHF + Zod · Recharts · dark mode · Ctrl+K global search |
 | `docs/` | [ERD](docs/ERD.md) · [API reference](docs/API.md) · [Architecture](docs/ARCHITECTURE.md) · [Deployment](docs/DEPLOYMENT.md) |
 | `docker-compose.yml` | Postgres + API + Web, one command up |
-| `index.html` | Legacy single-file freight job tracker (Qi-Net style) kept for reference |
+| `legacy/index.html` | Legacy single-file freight job tracker (Qi-Net style) kept for reference |
 
 ## Feature Highlights
 

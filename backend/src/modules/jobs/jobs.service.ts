@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
+import { rethrowPrisma } from '../../common/prisma-errors';
 import { SequenceService } from '../../common/sequence.service';
 import { PaginationDto, paged } from '../../common/dto/pagination.dto';
 import { assertJobStatusTransition } from '../../common/state-machine';
@@ -133,9 +134,11 @@ export class JobsService {
   }
 
   async remove(id: string) {
-    await this.prisma.job.delete({ where: { id } }).catch(() => {
-      throw new NotFoundException('Job not found');
-    });
+    try {
+      await this.prisma.job.delete({ where: { id } });
+    } catch (e) {
+      rethrowPrisma(e, 'Job', 'Job has invoices — cancel it instead of deleting so the billing trail stays intact');
+    }
     return { deleted: true };
   }
 
@@ -144,9 +147,11 @@ export class JobsService {
   }
 
   async removeDocument(id: string) {
-    await this.prisma.jobDocument.delete({ where: { id } }).catch(() => {
-      throw new NotFoundException('Document not found');
-    });
+    try {
+      await this.prisma.jobDocument.delete({ where: { id } });
+    } catch (e) {
+      rethrowPrisma(e, 'Document');
+    }
     return { deleted: true };
   }
 }

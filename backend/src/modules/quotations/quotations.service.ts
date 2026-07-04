@@ -1,6 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { AuditService } from '../../common/audit.service';
 import { PrismaService } from '../../common/prisma.service';
+import { rethrowPrisma } from '../../common/prisma-errors';
+import { requestContext } from '../../common/request-context';
 import { SequenceService } from '../../common/sequence.service';
 import { SettingsService } from '../../common/settings.service';
 import { PaginationDto, paged } from '../../common/dto/pagination.dto';
@@ -14,6 +17,7 @@ export class QuotationsService {
     private prisma: PrismaService,
     private seq: SequenceService,
     private settings: SettingsService,
+    private audit: AuditService,
   ) {}
 
   private baseCurrency() {
@@ -153,7 +157,7 @@ export class QuotationsService {
       },
       include: { items: true },
     });
-    await this.prisma.auditLog.create({ data: { userId, action: 'CREATE', entityType: 'quotation', entityId: quote.id, detail: { quoteNumber } } });
+    await this.audit.log({ userId, action: 'CREATE', entityType: 'quotation', entityId: quote.id, detail: { quoteNumber } });
     return quote;
   }
 
@@ -213,7 +217,8 @@ export class QuotationsService {
         },
         include: { items: { orderBy: { sortOrder: 'asc' } } },
       });
-      await tx.auditLog.create({ data: { userId, action: 'UPDATE', entityType: 'quotation', entityId: id } });
+      const ctx = requestContext.getStore();
+      await tx.auditLog.create({ data: { userId, action: 'UPDATE', entityType: 'quotation', entityId: id, ip: ctx?.ip, userAgent: ctx?.userAgent } });
       return quote;
     });
   }
@@ -223,7 +228,7 @@ export class QuotationsService {
     if (!existing) throw new NotFoundException('Quotation not found');
     assertQuotationStatusTransition(existing.status, status);
     const quote = await this.prisma.quotation.update({ where: { id }, data: { status } });
-    await this.prisma.auditLog.create({ data: { userId, action: 'STATUS', entityType: 'quotation', entityId: id, detail: { from: existing.status, to: status } } });
+    await this.audit.log({ userId, action: 'STATUS', entityType: 'quotation', entityId: id, detail: { from: existing.status, to: status } });
     return quote;
   }
 
@@ -266,7 +271,8 @@ export class QuotationsService {
           },
         });
         if (quote.status !== 'WON') await tx.quotation.update({ where: { id }, data: { status: 'WON' } });
-        await tx.auditLog.create({ data: { userId, action: 'CONVERT', entityType: 'quotation', entityId: id, detail: { jobNumber } } });
+        const ctx = requestContext.getStore();
+        await tx.auditLog.create({ data: { userId, action: 'CONVERT', entityType: 'quotation', entityId: id, detail: { jobNumber }, ip: ctx?.ip, userAgent: ctx?.userAgent } });
         return j;
       });
     } catch (e) {
@@ -279,10 +285,12 @@ export class QuotationsService {
   }
 
   async remove(id: string, userId?: string) {
-    await this.prisma.quotation.delete({ where: { id } }).catch(() => {
-      throw new NotFoundException('Quotation not found');
-    });
-    await this.prisma.auditLog.create({ data: { userId, action: 'DELETE', entityType: 'quotation', entityId: id } });
+    try {
+      await this.prisma.quotation.delete({ where: { id } });
+    } catch (e) {
+      rethrowPrisma(e, 'Quotation', 'Quotation was converted to a job — cancel the quotation instead of deleting it');
+    }
+    await this.audit.log({ userId, action: 'DELETE', entityType: 'quotation', entityId: id });
     return { deleted: true };
   }
 }

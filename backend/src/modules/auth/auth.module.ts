@@ -3,14 +3,19 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { jwtExpiresIn, jwtSecret } from './jwt.config';
 import { JwtStrategy } from './jwt.strategy';
 
 @Module({
   imports: [
     PassportModule,
-    JwtModule.register({
-      secret: process.env.JWT_SECRET || 'dev-secret',
-      signOptions: { expiresIn: process.env.JWT_EXPIRES_IN || '8h' },
+    // registerAsync: the factory runs at DI time (after env is loaded and
+    // validated), not at import time — and jwtSecret() has no fallback.
+    JwtModule.registerAsync({
+      useFactory: () => ({
+        secret: jwtSecret(),
+        signOptions: { expiresIn: jwtExpiresIn() },
+      }),
     }),
   ],
   controllers: [AuthController],

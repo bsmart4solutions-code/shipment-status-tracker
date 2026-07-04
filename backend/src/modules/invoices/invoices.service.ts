@@ -1,6 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { AuditService } from '../../common/audit.service';
 import { PrismaService } from '../../common/prisma.service';
+import { requestContext } from '../../common/request-context';
 import { SequenceService } from '../../common/sequence.service';
 import { PaginationDto, paged } from '../../common/dto/pagination.dto';
 import { assertInvoiceStatusTransition } from '../../common/state-machine';
@@ -13,6 +15,7 @@ export class InvoicesService {
   constructor(
     private prisma: PrismaService,
     private seq: SequenceService,
+    private audit: AuditService,
   ) {}
 
   /** subtotal + tax, computed server-side so the client can't send an arbitrary total. */
@@ -77,7 +80,7 @@ export class InvoicesService {
         notes: dto.notes,
       },
     });
-    await this.prisma.auditLog.create({ data: { userId, action: 'CREATE', entityType: 'invoice', entityId: invoice.id, detail: { invoiceNumber } } });
+    await this.audit.log({ userId, action: 'CREATE', entityType: 'invoice', entityId: invoice.id, detail: { invoiceNumber } });
     return invoice;
   }
 
@@ -106,7 +109,7 @@ export class InvoicesService {
         notes: dto.notes,
       },
     });
-    await this.prisma.auditLog.create({ data: { userId, action: 'UPDATE', entityType: 'invoice', entityId: id } });
+    await this.audit.log({ userId, action: 'UPDATE', entityType: 'invoice', entityId: id });
     return invoice;
   }
 
@@ -115,7 +118,7 @@ export class InvoicesService {
     if (!existing) throw new NotFoundException('Invoice not found');
     assertInvoiceStatusTransition(existing.status, 'ISSUED');
     const invoice = await this.prisma.invoice.update({ where: { id }, data: { status: 'ISSUED' } });
-    await this.prisma.auditLog.create({ data: { userId, action: 'STATUS', entityType: 'invoice', entityId: id, detail: { from: existing.status, to: 'ISSUED' } } });
+    await this.audit.log({ userId, action: 'STATUS', entityType: 'invoice', entityId: id, detail: { from: existing.status, to: 'ISSUED' } });
     return invoice;
   }
 
@@ -127,7 +130,7 @@ export class InvoicesService {
     }
     assertInvoiceStatusTransition(existing.status, 'CANCELLED');
     const invoice = await this.prisma.invoice.update({ where: { id }, data: { status: 'CANCELLED' } });
-    await this.prisma.auditLog.create({ data: { userId, action: 'STATUS', entityType: 'invoice', entityId: id, detail: { from: existing.status, to: 'CANCELLED' } } });
+    await this.audit.log({ userId, action: 'STATUS', entityType: 'invoice', entityId: id, detail: { from: existing.status, to: 'CANCELLED' } });
     return invoice;
   }
 
@@ -158,8 +161,9 @@ export class InvoicesService {
         },
       });
       await tx.invoice.update({ where: { id }, data: { amountPaid: newAmountPaid, status: newStatus } });
+      const ctx = requestContext.getStore();
       await tx.auditLog.create({
-        data: { userId, action: 'PAYMENT', entityType: 'invoice', entityId: id, detail: { amount: dto.amount, newAmountPaid, newStatus } },
+        data: { userId, action: 'PAYMENT', entityType: 'invoice', entityId: id, detail: { amount: dto.amount, newAmountPaid, newStatus }, ip: ctx?.ip, userAgent: ctx?.userAgent },
       });
       return payment;
     });

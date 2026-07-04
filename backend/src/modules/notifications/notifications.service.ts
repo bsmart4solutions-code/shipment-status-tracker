@@ -1,17 +1,31 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
 import { SettingsService } from '../../common/settings.service';
 
 /**
  * Alert generation. `scan()` inspects the database against configurable
- * thresholds and creates deduplicated notifications. Call it from a cron
- * (docker-compose ships one via `ofelia`-style scheduler or an external
- * cron hitting POST /api/notifications/scan) and/or on dashboard load.
+ * thresholds and creates deduplicated notifications. Runs automatically
+ * every 30 minutes (see scheduledScan) and can also be triggered manually
+ * via POST /api/notifications/scan.
  */
 @Injectable()
 export class NotificationsService {
+  private logger = new Logger(NotificationsService.name);
+
   constructor(private prisma: PrismaService, private settings: SettingsService) {}
+
+  /** The scan engine was fully built but never wired to a scheduler — this activates it. */
+  @Cron(CronExpression.EVERY_30_MINUTES)
+  async scheduledScan() {
+    try {
+      const result = await this.scan();
+      if (result.alertsCreated > 0) this.logger.log(`Scheduled scan created ${result.alertsCreated} alert(s)`);
+    } catch (e) {
+      this.logger.error('Scheduled notification scan failed', e as Error);
+    }
+  }
 
   list(userId: string, unreadOnly = false) {
     return this.prisma.notification.findMany({
