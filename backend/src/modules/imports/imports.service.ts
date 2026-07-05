@@ -110,6 +110,72 @@ export class ImportsService {
     return { total: rows.length, created, skipped: rows.length - created, results };
   }
 
+  /**
+   * Import ocean/vendor rate rows (already parsed from Excel in the browser)
+   * into VendorServiceRate. Each row is one lane+container line. Dedupe key is
+   * vendor+service+origin+destination+containerType+effectiveDate so
+   * re-importing the same month's sheet is idempotent.
+   */
+  async importRates(dto: ImportRatesInput, userId?: string): Promise<ImportSummary> {
+    const vendor = await this.prisma.vendor.findFirst({ where: { id: dto.vendorId, deletedAt: null }, select: { id: true, name: true } });
+    if (!vendor) throw new BadRequestException('Vendor not found');
+    const service = await this.prisma.service.findFirst({ where: { id: dto.serviceId, deletedAt: null }, select: { id: true } });
+    if (!service) throw new BadRequestException('Service not found');
+    if (!Array.isArray(dto.rows) || dto.rows.length === 0) throw new BadRequestException('No rate rows to import');
+    if (dto.rows.length > 5000) throw new BadRequestException('Too many rows — split the file');
+
+    const effectiveDate = dto.effectiveDate ? new Date(dto.effectiveDate) : new Date();
+    const currency = (dto.currency || 'USD').toUpperCase();
+
+    // Pre-load existing rates for this vendor+service to dedupe within the effective month.
+    const existing = await this.prisma.vendorServiceRate.findMany({
+      where: { vendorId: dto.vendorId, serviceId: dto.serviceId },
+      select: { origin: true, destination: true, containerType: true, effectiveDate: true },
+    });
+    const key = (o?: string | null, d?: string | null, c?: string | null, e?: Date) =>
+      `${(o ?? '').toLowerCase()}|${(d ?? '').toLowerCase()}|${(c ?? '').toLowerCase()}|${e ? e.toISOString().slice(0, 10) : ''}`;
+    const seen = new Set(existing.map((r) => key(r.origin, r.destination, r.containerType, r.effectiveDate)));
+
+    const results: ImportRowResult[] = [];
+    let created = 0;
+    for (let i = 0; i < dto.rows.length; i++) {
+      const r = dto.rows[i];
+      const rowNum = i + 1;
+      const label = [r.origin, r.destination, r.containerType].filter(Boolean).join(' → ');
+      const cost = Number(r.cost);
+      if (!r.destination) { results.push({ row: rowNum, status: 'skipped', reason: 'missing destination', label }); continue; }
+      if (!Number.isFinite(cost) || cost < 0) { results.push({ row: rowNum, status: 'skipped', reason: `invalid cost "${r.cost}"`, label }); continue; }
+      // Dedupe only against rates already in the DB (idempotent re-import) —
+      // do NOT collapse distinct rows within the same sheet, since a lane can
+      // legitimately have several rates (e.g. the same POD via different carriers).
+      const k = key(r.origin, r.destination, r.containerType, effectiveDate);
+      if (seen.has(k)) { results.push({ row: rowNum, status: 'skipped', reason: 'already imported for this effective date', label }); continue; }
+
+      await this.prisma.vendorServiceRate.create({
+        data: {
+          vendorId: dto.vendorId,
+          serviceId: dto.serviceId,
+          origin: r.origin || undefined,
+          destination: r.destination,
+          containerType: r.containerType || undefined,
+          rateType: r.containerType ? 'PER_CONTAINER' : 'FIXED',
+          currency,
+          cost,
+          minimumCharge: r.minimumCharge != null && Number.isFinite(Number(r.minimumCharge)) ? Number(r.minimumCharge) : undefined,
+          effectiveDate,
+          remarks: r.remarks || undefined,
+        },
+      });
+      // Deliberately not adding k to `seen`: distinct rows in the same upload
+      // that share a lane+container (carrier alternates) should all import.
+      created++;
+      results.push({ row: rowNum, status: 'created', label });
+    }
+
+    await this.audit.log({ userId, action: 'IMPORT', entityType: 'rate', detail: { vendor: vendor.name, total: dto.rows.length, created } });
+    return { total: dto.rows.length, created, skipped: dto.rows.length - created, results };
+  }
+
   private parse(csv: string) {
     if (!csv || !csv.trim()) throw new BadRequestException('CSV content is empty');
     const rows = parseCsv(csv);
@@ -117,6 +183,23 @@ export class ImportsService {
     if (rows.length > 5000) throw new BadRequestException('CSV exceeds 5000 rows — split the file');
     return rows;
   }
+}
+
+export interface RateImportRow {
+  origin?: string;
+  destination?: string;
+  containerType?: string;
+  cost: number;
+  minimumCharge?: number;
+  remarks?: string;
+}
+
+export interface ImportRatesInput {
+  vendorId: string;
+  serviceId: string;
+  currency?: string;
+  effectiveDate?: string;
+  rows: RateImportRow[];
 }
 
 /** First non-empty value among the candidate header keys. */
