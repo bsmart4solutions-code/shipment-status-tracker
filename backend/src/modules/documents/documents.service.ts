@@ -3,6 +3,7 @@ import { AuditService } from '../../common/audit.service';
 import { FileStorageService } from '../../common/file-storage.service';
 import { PrismaService } from '../../common/prisma.service';
 import { extractFromText, ExtractionResult } from './bl-extract';
+import { OcrService } from './ocr.service';
 
 // Whitelist of accepted upload types — freight documents plus rate sheets.
 const ALLOWED_MIME = new Set([
@@ -22,6 +23,7 @@ export class DocumentsService {
     private prisma: PrismaService,
     private storage: FileStorageService,
     private audit: AuditService,
+    private ocr: OcrService,
   ) {}
 
   async upload(jobId: string, file: Express.Multer.File, category: string | undefined, userId?: string) {
@@ -59,8 +61,13 @@ export class DocumentsService {
     return { doc, stream };
   }
 
-  /** Read the stored PDF's text layer and run template extraction. */
-  async extract(id: string, userId?: string): Promise<ExtractionResult & { documentId: string }> {
+  /**
+   * Extract fields from a stored PDF. Text-layer PDFs go straight through the
+   * template engine; scans (no text layer) are rendered and OCR'd first, then
+   * the same engine runs on the recognised text — `ocrUsed` marks the result
+   * so the UI can flag that values came from OCR and deserve a closer look.
+   */
+  async extract(id: string, userId?: string): Promise<ExtractionResult & { documentId: string; ocrUsed: boolean }> {
     const doc = await this.prisma.jobDocument.findUnique({ where: { id } });
     if (!doc || !doc.storedPath) throw new NotFoundException('Document not found');
     if (doc.mimeType !== 'application/pdf') {
@@ -70,10 +77,24 @@ export class DocumentsService {
     if (!full) throw new NotFoundException('File missing from storage');
 
     const text = await this.pdfText(full);
-    const result = extractFromText(text);
-    await this.prisma.jobDocument.update({ where: { id }, data: { extracted: result as unknown as object } });
-    await this.audit.log({ userId, action: 'EXTRACT', entityType: 'document', entityId: id, detail: { documentType: result.documentType, confidence: result.confidence } });
-    return { documentId: id, ...result };
+    let result = extractFromText(text);
+    let ocrUsed = false;
+
+    if (result.needsOcr) {
+      const image = await this.ocr.renderFirstPage(full);
+      const recognised = image ? await this.ocr.recognize(image) : null;
+      if (recognised) {
+        ocrUsed = true;
+        result = extractFromText(recognised.text);
+        // If even the OCR text was unusable, keep the needsOcr flag honest —
+        // it now means "OCR ran and still couldn't read this document".
+      }
+    }
+
+    const stored = { ...result, ocrUsed };
+    await this.prisma.jobDocument.update({ where: { id }, data: { extracted: stored as unknown as object } });
+    await this.audit.log({ userId, action: 'EXTRACT', entityType: 'document', entityId: id, detail: { documentType: result.documentType, confidence: result.confidence, ocrUsed } });
+    return { documentId: id, ...result, ocrUsed };
   }
 
   private async pdfText(absPath: string): Promise<string> {

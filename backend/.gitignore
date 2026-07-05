@@ -1,3 +1,4 @@
 
 # uploaded document binaries (local dev)
 uploads/
+*.traineddata

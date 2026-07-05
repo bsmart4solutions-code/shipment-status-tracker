@@ -174,6 +174,7 @@ interface JobDocument {
 }
 interface ExtractionResult {
   textLayerPresent: boolean; needsOcr: boolean; documentType: string; confidence: number;
+  ocrUsed?: boolean;
   fields: {
     blNumber?: string; vessel?: string; voyage?: string; portOfLoading?: string;
     portOfDischarge?: string; placeOfDelivery?: string; eta?: string;
@@ -253,7 +254,7 @@ function DocumentsModal({ job, onClose }: { job: JobRow; onClose: () => void }) 
                 {canWrite && d.mimeType === 'application/pdf' && (
                   <button className="text-primary hover:underline text-sm inline-flex items-center gap-1"
                     onClick={() => extract.mutate(d.id)} disabled={extract.isPending}>
-                    <Sparkles size={13} /> Extract
+                    <Sparkles size={13} /> {extract.isPending ? 'Extracting… (OCR can take ~15s)' : 'Extract'}
                   </button>
                 )}
                 {canWrite && (
@@ -273,9 +274,19 @@ function DocumentsModal({ job, onClose }: { job: JobRow; onClose: () => void }) 
               <span className="text-xs font-normal text-gray-400">
                 {extraction.result.documentType} · confidence {Math.round(extraction.result.confidence * 100)}%
               </span>
+              {extraction.result.ocrUsed && (
+                <span className="text-xs badge bg-amber-50 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">OCR</span>
+              )}
             </div>
+            {extraction.result.ocrUsed && !extraction.result.needsOcr && (
+              <p className="text-xs text-amber-600">Scanned document read via OCR — values may contain recognition errors, please double-check before applying.</p>
+            )}
             {extraction.result.needsOcr ? (
-              <p className="text-sm text-amber-600">No text layer found — this looks like a scan. It needs OCR or manual entry.</p>
+              <p className="text-sm text-amber-600">
+                {extraction.result.ocrUsed
+                  ? 'OCR ran but could not read this scan — the image quality is too low. Manual entry needed.'
+                  : 'No text layer found — this looks like a scan. It needs OCR or manual entry.'}
+              </p>
             ) : (
               <>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
