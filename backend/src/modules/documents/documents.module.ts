@@ -6,6 +6,7 @@ import { RequirePermission } from '../../common/decorators/permissions.decorator
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { DocumentsService } from './documents.service';
+import { OcrService } from './ocr.service';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller()
@@ -49,5 +50,5 @@ class DocumentsController {
   }
 }
 
-@Module({ controllers: [DocumentsController], providers: [DocumentsService] })
+@Module({ controllers: [DocumentsController], providers: [DocumentsService, OcrService] })
 export class DocumentsModule {}

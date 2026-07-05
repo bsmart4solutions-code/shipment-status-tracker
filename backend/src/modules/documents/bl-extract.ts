@@ -38,6 +38,9 @@ export interface ExtractionResult {
 
 // Every label the extractor knows about. Used both to locate a value and to
 // know where an inline value ends (the next label on the same line).
+// OCR tolerance: [pf]ort accepts the very common OCR confusion of P↔F
+// ("Fort of Loading"); trailing colons are optional throughout because OCR
+// often drops them.
 const ALL_LABELS = [
   /b\/l\s*number/i,
   /bill\s*of\s*lading\s*number\(?s?\)?/i,
@@ -49,10 +52,10 @@ const ALL_LABELS = [
   /debtor\s*code/i,
   /\beta\b(?:\s*at\s*pod)?/i,
   /place\s*of\s*receipt/i,
-  /port\s*of\s*loading/i,
-  /port\s*of\s*discharge/i,
+  /[pf]ort\s*of\s*loading/i,
+  /[pf]ort\s*of\s*discharge/i,
   /place\s*of\s*delivery/i,
-  /port\s*of\s*delivery/i,
+  /[pf]ort\s*of\s*delivery/i,
   /\bvolume\b/i,
   /\bdate\b/i,
   /\bshipper\b/i,
@@ -60,30 +63,72 @@ const ALL_LABELS = [
   /\bnotify\s*party\b/i,
 ];
 
-/** Value from a label: inline after the colon (cut at the next label) or the next non-empty line. */
-function grab(lines: string[], labelRe: RegExp): string | undefined {
+/**
+ * Value for a label. Handles three real layouts:
+ * 1. Inline:   "Port of Loading : NANSHA"          → value after the colon
+ * 2. Stacked:  "PORT OF LOADING" \n "Qingdao"      → value on the next line
+ * 3. Columns (common in OCR'd two-column forms):
+ *    "Port of Discharge   Place of Delivery" \n "PORT KLANG   PORT KLANG"
+ *    → both labels share the header line; the value line is split between
+ *      them by token count and each label takes its own chunk.
+ */
+function grab(lines: string[], labelRe: RegExp, ok?: (v: string) => boolean): string | undefined {
+  const valid = (v: string | undefined) => (v && (!ok || ok(v)) ? v : undefined);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const m = line.match(new RegExp(`(${labelRe.source})\\s*:?`, 'i'));
     if (!m || m.index === undefined) continue;
     const after = line.slice(m.index + m[0].length);
-    const inline = cutAtNextLabel(after).trim();
+    const inline = valid(cutAtNextLabel(after).trim());
     if (inline) return inline;
-    // Label sits alone on its line → take the next non-empty, non-label line.
+
+    // No (valid) inline value. Detect column-header layout: which labels sit
+    // on this header line, and which position ours is among them.
+    const headerLabels = labelsOnLine(line);
+    const ourPos = headerLabels.findIndex((h) => h.source === labelRe.source);
+
     for (let j = i + 1; j < lines.length && j <= i + 2; j++) {
       const nxt = lines[j].trim();
-      if (nxt && !isLabelLine(nxt)) return cutAtNextLabel(nxt).trim();
+      if (!nxt || isLabelLine(nxt)) continue;
+      if (headerLabels.length > 1 && ourPos !== -1) {
+        return valid(columnChunk(nxt, headerLabels.length, ourPos));
+      }
+      return valid(cutAtNextLabel(nxt).trim());
     }
     return undefined;
   }
   return undefined;
 }
 
-/** Trim an inline value at the point where the next known label begins. */
+/** All known labels present on a line, in order of appearance. */
+function labelsOnLine(line: string): RegExp[] {
+  const found: { re: RegExp; at: number }[] = [];
+  for (const lab of ALL_LABELS) {
+    const m = line.match(new RegExp(lab.source, 'i'));
+    if (m && m.index !== undefined) found.push({ re: lab, at: m.index });
+  }
+  return found.sort((a, b) => a.at - b.at).map((f) => f.re);
+}
+
+/** k-th of n roughly-equal token chunks of a column value line, junk-trimmed. */
+function columnChunk(valueLine: string, n: number, k: number): string {
+  const tokens = valueLine.split(/\s+/).filter(Boolean);
+  const per = Math.floor(tokens.length / n) || 1;
+  const start = k * per;
+  const chunk = k === n - 1 ? tokens.slice(start) : tokens.slice(start, start + per);
+  return chunk.join(' ').replace(/[*+|†]+$/g, '').trim();
+}
+
+/**
+ * Trim an inline value at the point where the next known label begins.
+ * The colon after the label is optional — OCR frequently drops it, and
+ * two-column forms put a bare label (the neighbour column's header) right
+ * after ours on the same line.
+ */
 function cutAtNextLabel(s: string): string {
   let cut = s.length;
   for (const lab of ALL_LABELS) {
-    const m = s.match(new RegExp(`\\s+(${lab.source})\\s*:`, 'i'));
+    const m = s.match(new RegExp(`(?:^|\\s)(${lab.source})\\s*(?::|\\*|$|\\s)`, 'i'));
     if (m && m.index !== undefined && m.index < cut) cut = m.index;
   }
   return s.slice(0, cut);
@@ -122,11 +167,15 @@ export function extractFromText(rawText: string): ExtractionResult {
   const lines = text.split(/\r?\n/);
   const type = detectType(text);
 
+  // Port/place names are short; anything long or containing OCR artifacts
+  // (= | are never in port names) is neighbouring-column bleed, not a value.
+  const portish = (v: string) => v.split(/\s+/).length <= 6 && !/[=|]/.test(v);
+
   const fields: ExtractedFields = {};
   fields.blNumber = grab(lines, /bill\s*of\s*lading\s*number\(?s?\)?/i) || grab(lines, /b\/l\s*number/i);
-  fields.portOfLoading = grab(lines, /port\s*of\s*loading/i);
-  fields.portOfDischarge = grab(lines, /port\s*of\s*discharge/i);
-  fields.placeOfDelivery = grab(lines, /place\s*of\s*delivery/i) || grab(lines, /port\s*of\s*delivery/i);
+  fields.portOfLoading = grab(lines, /[pf]ort\s*of\s*loading/i, portish);
+  fields.portOfDischarge = grab(lines, /[pf]ort\s*of\s*discharge/i, portish);
+  fields.placeOfDelivery = grab(lines, /place\s*of\s*delivery/i, portish) || grab(lines, /[pf]ort\s*of\s*delivery/i, portish);
   // ETA: arrival notices write "ETA AT POD: <port>" then the date on the next
   // "ON: ..." line; invoices write "ETA : <date>" inline. Handle both.
   const etaAtPodIdx = lines.findIndex((l) => /eta\s*at\s*pod/i.test(l));

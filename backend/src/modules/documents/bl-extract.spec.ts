@@ -105,3 +105,33 @@ describe('BL extraction — scanned document (no text layer)', () => {
     expect(r.confidence).toBe(0);
   });
 });
+
+// Real tesseract output from an OCR'd two-column BL scan (HBL-v3). OCR
+// mangles the layout: labels of adjacent columns land on one line, values on
+// the next, and the right column's boilerplate bleeds into label lines.
+const OCR_TWO_COLUMN = `BILL OF LADING FOR COMBINED TRANSPORT.OR PORT TO PORT SHIPMENT OR THROUGH CARRIAGE
+a Vou. No. Fort of Loading arc condions of iB of Lacing asf each had personaly signed this Bill
+OGCL SAVANNAH 4735 = SHANGHAI Cry
+Port of Discharge Place of Delivery * “Applicable Only When Document Used as a Combined Transport Bil of Lading.
+PORT KLANG PORT KLANG +
+Container Seal No. | Number and Kind | Description of Goods | Gross Weight | Measurement`;
+
+describe('BL extraction — OCR text from a two-column scan', () => {
+  const r = extractFromText(OCR_TWO_COLUMN);
+
+  it('splits the shared value line between the two column labels', () => {
+    expect(r.fields.portOfDischarge).toBe('PORT KLANG');
+    expect(r.fields.placeOfDelivery).toBe('PORT KLANG');
+  });
+
+  it('rejects neighbouring-column boilerplate instead of capturing junk', () => {
+    // "Fort of Loading" is followed by right-column contract text and a
+    // garbled vessel line — both must be rejected, not returned as a port.
+    expect(r.fields.portOfLoading).toBeUndefined();
+  });
+
+  it('reports honest low confidence for a partial OCR extraction', () => {
+    expect(r.confidence).toBeLessThan(0.5);
+    expect(r.confidence).toBeGreaterThan(0);
+  });
+});

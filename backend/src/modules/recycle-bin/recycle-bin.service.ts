@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuditService } from '../../common/audit.service';
+import { FileStorageService } from '../../common/file-storage.service';
 import { PrismaService } from '../../common/prisma.service';
 import { rethrowPrisma } from '../../common/prisma-errors';
 
@@ -20,7 +21,7 @@ export type RecyclableKey = keyof typeof RECYCLABLE;
 
 @Injectable()
 export class RecycleBinService {
-  constructor(private prisma: PrismaService, private audit: AuditService) {}
+  constructor(private prisma: PrismaService, private audit: AuditService, private storage: FileStorageService) {}
 
   private resolve(entity: string) {
     const cfg = (RECYCLABLE as Record<string, (typeof RECYCLABLE)[RecyclableKey]>)[entity];
@@ -72,6 +73,16 @@ export class RecycleBinService {
     const cfg = this.resolve(entity);
     const existing = await this.delegate(cfg.model).findFirst({ where: { id, deletedAt: { not: null } } });
     if (!existing) throw new NotFoundException(`${cfg.title} not found in recycle bin`);
+
+    // Purging a job cascade-deletes its JobDocument rows at the DB level,
+    // which would orphan the stored binaries — remove those files first.
+    if (entity === 'job') {
+      const docs = await this.prisma.jobDocument.findMany({ where: { jobId: id }, select: { storedPath: true } });
+      for (const d of docs) {
+        if (d.storedPath) await this.storage.remove(d.storedPath);
+      }
+    }
+
     try {
       await this.delegate(cfg.model).delete({ where: { id } });
     } catch (e) {
