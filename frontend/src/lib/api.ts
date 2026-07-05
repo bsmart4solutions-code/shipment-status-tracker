@@ -75,3 +75,22 @@ export async function downloadCsv(path: string, filename: string) {
   a.click();
   URL.revokeObjectURL(a.href);
 }
+
+/** Multipart upload — lets the browser set the multipart boundary itself. */
+export async function uploadFile<T = unknown>(path: string, file: File, fields: Record<string, string> = {}): Promise<T> {
+  const token = getToken();
+  const form = new FormData();
+  form.append('file', file);
+  for (const [k, v] of Object.entries(fields)) form.append(k, v);
+  const res = await fetch(`/api${path}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const msg = Array.isArray(body.message) ? body.message.join('; ') : body.message || res.statusText;
+    throw new ApiError(res.status, msg);
+  }
+  return res.json();
+}

@@ -4,7 +4,7 @@ import { RequirePermission } from '../../common/decorators/permissions.decorator
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
-import { AddDocumentDto, AddTrackingEventDto, CreateJobDto, UpdateJobDto } from './jobs.dto';
+import { AddTrackingEventDto, CreateJobDto, UpdateJobDto } from './jobs.dto';
 import { JobsService } from './jobs.service';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -36,11 +36,8 @@ export class JobsController {
   @Delete(':id') @RequirePermission('jobs.write')
   remove(@Param('id') id: string) { return this.jobs.remove(id); }
 
-  @Post(':id/documents') @RequirePermission('jobs.write')
-  addDocument(@Param('id') id: string, @Body() dto: AddDocumentDto) { return this.jobs.addDocument(id, dto); }
-
-  @Delete('documents/:docId') @RequirePermission('jobs.write')
-  removeDocument(@Param('docId') docId: string) { return this.jobs.removeDocument(docId); }
+  // Document upload/list/download/extract live in DocumentsModule (binary
+  // storage + template extraction). The old URL-only add/remove was replaced.
 
   @Get(':id/tracking') @RequirePermission('jobs.read')
   listTracking(@Param('id') id: string) { return this.jobs.listTracking(id); }

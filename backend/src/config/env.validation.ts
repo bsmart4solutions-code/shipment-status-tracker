@@ -36,6 +36,11 @@ export class EnvironmentVariables {
   @IsOptional()
   BASE_CURRENCY: string = 'MYR';
 
+  // Directory for uploaded document binaries; mount to a volume in production.
+  @IsString()
+  @IsOptional()
+  UPLOAD_DIR: string = './uploads';
+
   @IsString()
   @IsOptional()
   LOG_LEVEL: string = 'debug';

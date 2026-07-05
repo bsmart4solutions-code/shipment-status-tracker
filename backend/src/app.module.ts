@@ -28,6 +28,7 @@ import { HealthModule } from './modules/health/health.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { RecycleBinModule } from './modules/recycle-bin/recycle-bin.module';
 import { ImportsModule } from './modules/imports/imports.module';
+import { DocumentsModule } from './modules/documents/documents.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { ImportsModule } from './modules/imports/imports.module';
     InvoicesModule,
     RecycleBinModule,
     ImportsModule,
+    DocumentsModule,
   ],
   providers: [
     {

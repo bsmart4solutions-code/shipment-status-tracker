@@ -23,12 +23,6 @@ export class UpdateJobDto extends CreateJobDto {
   @IsOptional() @IsUUID() declare customerId: string;
 }
 
-export class AddDocumentDto {
-  @IsString() name: string;
-  @IsOptional() @IsString() category?: string;
-  @IsOptional() @IsString() url?: string;
-}
-
 export class AddTrackingEventDto {
   @IsString() status: string;
   @IsOptional() @IsString() location?: string;

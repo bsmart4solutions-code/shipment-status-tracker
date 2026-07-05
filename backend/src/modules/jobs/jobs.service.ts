@@ -1,11 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
-import { rethrowPrisma } from '../../common/prisma-errors';
 import { SequenceService } from '../../common/sequence.service';
 import { PaginationDto, paged } from '../../common/dto/pagination.dto';
 import { assertJobStatusTransition } from '../../common/state-machine';
-import { AddDocumentDto, AddTrackingEventDto, CreateJobDto, UpdateJobDto } from './jobs.dto';
+import { AddTrackingEventDto, CreateJobDto, UpdateJobDto } from './jobs.dto';
 
 @Injectable()
 export class JobsService {
@@ -138,19 +137,6 @@ export class JobsService {
     const existing = await this.prisma.job.findFirst({ where: { id, deletedAt: null } });
     if (!existing) throw new NotFoundException('Job not found');
     await this.prisma.job.update({ where: { id }, data: { deletedAt: new Date() } });
-    return { deleted: true };
-  }
-
-  addDocument(jobId: string, dto: AddDocumentDto) {
-    return this.prisma.jobDocument.create({ data: { ...dto, jobId } });
-  }
-
-  async removeDocument(id: string) {
-    try {
-      await this.prisma.jobDocument.delete({ where: { id } });
-    } catch (e) {
-      rethrowPrisma(e, 'Document');
-    }
     return { deleted: true };
   }
 }
