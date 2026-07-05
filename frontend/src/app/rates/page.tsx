@@ -5,8 +5,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus } from 'lucide-react';
+import { Plus, Upload } from 'lucide-react';
 import { Shell } from '@/components/shell';
+import { RateImportDialog } from '@/components/rate-import-dialog';
 import { ErrorText, Modal, Pagination, Table } from '@/components/ui';
 import { api, hasPermission } from '@/lib/api';
 import { fmtDate, fmtMoney } from '@/lib/utils';
@@ -21,6 +22,7 @@ const rateSchema = z.object({
   destination: z.string().optional(),
   country: z.string().optional(),
   state: z.string().optional(),
+  containerType: z.string().optional(),
   rateType: z.string(),
   currency: z.string(),
   cost: z.coerce.number().positive(),
@@ -44,6 +46,7 @@ export default function RatesPage() {
   const [serviceFilter, setServiceFilter] = useState('');
   const [vendorFilter, setVendorFilter] = useState('');
   const [editing, setEditing] = useState<Rate | 'new' | null>(null);
+  const [showImport, setShowImport] = useState(false);
 
   const { data: services } = useQuery({ queryKey: ['services'], queryFn: () => api<{ id: string; name: string }[]>('/services') });
   const { data: vendors } = useQuery({ queryKey: ['vendors-all'], queryFn: () => api<{ items: { id: string; name: string }[] }>('/vendors?pageSize=200') });
@@ -63,7 +66,12 @@ export default function RatesPage() {
   const now = new Date();
 
   return (
-    <Shell title="Vendor Service Rates" actions={canWrite ? <button className="btn-primary" onClick={() => setEditing('new')}><Plus size={15} /> New Rate</button> : undefined}>
+    <Shell title="Vendor Service Rates" actions={canWrite ? (
+      <div className="flex gap-2">
+        <button className="btn-ghost" onClick={() => setShowImport(true)}><Upload size={15} /> Import Excel</button>
+        <button className="btn-primary" onClick={() => setEditing('new')}><Plus size={15} /> New Rate</button>
+      </div>
+    ) : undefined}>
       <div className="flex flex-wrap gap-2 mb-4">
         <input className="input max-w-xs" placeholder="Search lane or vendor…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
         <select className="input max-w-[200px]" value={serviceFilter} onChange={(e) => { setServiceFilter(e.target.value); setPage(1); }}>
@@ -84,7 +92,7 @@ export default function RatesPage() {
               <td className="td font-medium">{r.vendor.name}{r.vendor.isPreferred && ' ★'}</td>
               <td className="td">{r.service.name}</td>
               <td className="td text-gray-500">{r.origin || '-'}</td>
-              <td className="td text-gray-500">{r.destination || '-'}</td>
+              <td className="td text-gray-500">{r.destination || '-'}{r.containerType && <span className="ml-1 text-xs badge bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">{r.containerType}</span>}</td>
               <td className="td"><span className="badge bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">{r.rateType.replace('_', ' ')}</span></td>
               <td className="td font-medium">{fmtMoney(r.cost, r.currency)}</td>
               <td className="td text-gray-500">{r.minimumCharge ? fmtMoney(r.minimumCharge, r.currency) : '-'}</td>
@@ -110,6 +118,7 @@ export default function RatesPage() {
           onClose={() => setEditing(null)}
         />
       )}
+      {showImport && <RateImportDialog onClose={() => setShowImport(false)} />}
     </Shell>
   );
 }

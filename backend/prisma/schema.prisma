@@ -180,6 +180,7 @@ model VendorServiceRate {
   destination   String?
   country       String?
   state         String?
+  containerType String? // e.g. 20FT / 40FT / 40HC for ocean FCL rates; null for non-container rates
   rateType      RateType  @default(FIXED)
   currency      String    @default("MYR")
   cost          Decimal   @db.Decimal(14, 4)

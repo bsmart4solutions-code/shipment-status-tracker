@@ -9,6 +9,7 @@ export class CreateRateDto {
   @IsOptional() @IsString() destination?: string;
   @IsOptional() @IsString() country?: string;
   @IsOptional() @IsString() state?: string;
+  @IsOptional() @IsString() containerType?: string;
   @IsIn(RATE_TYPES as unknown as string[]) rateType: (typeof RATE_TYPES)[number];
   @IsString() currency: string;
   @IsNumber() cost: number;
