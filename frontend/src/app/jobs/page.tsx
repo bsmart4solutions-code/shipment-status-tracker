@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { MapPin, Plus, Receipt } from 'lucide-react';
+import { FileText, MapPin, Plus, Receipt, Sparkles, Trash2, Upload } from 'lucide-react';
 import { Shell } from '@/components/shell';
 import { ErrorText, Modal, Pagination, StatusBadge, Table } from '@/components/ui';
-import { api, hasPermission } from '@/lib/api';
+import { api, hasPermission, uploadFile } from '@/lib/api';
 import { fmtDate, fmtMoney } from '@/lib/utils';
 
 const JOB_STATUSES = ['OPEN', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETED', 'CANCELLED'];
@@ -25,6 +25,7 @@ export default function JobsPage() {
   const [status, setStatus] = useState('');
   const [editing, setEditing] = useState<JobRow | 'new' | null>(null);
   const [tracking, setTracking] = useState<JobRow | null>(null);
+  const [docsFor, setDocsFor] = useState<JobRow | null>(null);
 
   const { data } = useQuery({
     queryKey: ['jobs', page, search, status],
@@ -73,6 +74,7 @@ export default function JobsPage() {
             <td className="td">
               <div className="flex gap-2">
                 <button className="text-primary hover:underline text-sm" onClick={() => setTracking(j)}>Track</button>
+                <button className="text-primary hover:underline text-sm" onClick={() => setDocsFor(j)}>Docs</button>
                 {canWrite && <button className="text-primary hover:underline text-sm" onClick={() => setEditing(j)}>Edit</button>}
                 {canInvoice && Number(j.actualRevenue) > 0 && (
                   <button className="text-primary hover:underline text-sm inline-flex items-center gap-1"
@@ -90,6 +92,7 @@ export default function JobsPage() {
 
       {editing && <JobModal job={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {tracking && <TrackingModal job={tracking} onClose={() => setTracking(null)} />}
+      {docsFor && <DocumentsModal job={docsFor} onClose={() => setDocsFor(null)} />}
     </Shell>
   );
 }
@@ -158,6 +161,136 @@ function TrackingModal({ job, onClose }: { job: JobRow; onClose: () => void }) {
             <ErrorText error={add.error} />
             <button className="btn-primary w-full justify-center" disabled={add.isPending}>Add Event</button>
           </form>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+interface JobDocument {
+  id: string; name: string; originalName: string | null; category: string | null;
+  mimeType: string | null; sizeBytes: number | null; uploadedAt: string;
+  extracted: ExtractionResult | null;
+}
+interface ExtractionResult {
+  textLayerPresent: boolean; needsOcr: boolean; documentType: string; confidence: number;
+  fields: {
+    blNumber?: string; vessel?: string; voyage?: string; portOfLoading?: string;
+    portOfDischarge?: string; placeOfDelivery?: string; eta?: string;
+    invoiceNumber?: string; invoiceDate?: string; issueDate?: string;
+  };
+}
+
+function DocumentsModal({ job, onClose }: { job: JobRow; onClose: () => void }) {
+  const qc = useQueryClient();
+  const canWrite = hasPermission('jobs.write');
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [category, setCategory] = useState('BL');
+  const [extraction, setExtraction] = useState<{ docId: string; result: ExtractionResult } | null>(null);
+
+  const { data: docs } = useQuery({
+    queryKey: ['job-docs', job.id],
+    queryFn: () => api<JobDocument[]>(`/jobs/${job.id}/documents`),
+  });
+
+  const upload = useMutation({
+    mutationFn: (file: File) => uploadFile(`/jobs/${job.id}/documents/upload`, file, { category }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['job-docs', job.id] }),
+  });
+  const extract = useMutation({
+    mutationFn: (docId: string) => api<ExtractionResult>(`/documents/${docId}/extract`, { method: 'POST' }),
+    onSuccess: (result, docId) => { setExtraction({ docId, result }); qc.invalidateQueries({ queryKey: ['job-docs', job.id] }); },
+  });
+  const del = useMutation({
+    mutationFn: (docId: string) => api(`/documents/${docId}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['job-docs', job.id] }),
+  });
+  const applyToJob = useMutation({
+    mutationFn: (f: ExtractionResult['fields']) => api(`/jobs/${job.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        origin: f.portOfLoading || undefined,
+        destination: f.portOfDischarge || undefined,
+        trackingNumber: f.blNumber || undefined,
+      }),
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['jobs'] }); alert('Job updated with extracted origin / destination / B-L number.'); },
+  });
+
+  const fmtSize = (b: number | null) => (b == null ? '' : b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(0)} KB` : `${(b / 1048576).toFixed(1)} MB`);
+
+  return (
+    <Modal title={`Documents — ${job.jobNumber}`} onClose={onClose} wide>
+      <div className="space-y-4">
+        {canWrite && (
+          <div className="flex items-center gap-2">
+            <select className="input max-w-[130px]" value={category} onChange={(e) => setCategory(e.target.value)}>
+              {['BL', 'Invoice', 'Permit', 'POD', 'Packing List', 'Other'].map((c) => <option key={c}>{c}</option>)}
+            </select>
+            <button type="button" className="btn-ghost" onClick={() => fileRef.current?.click()} disabled={upload.isPending}>
+              <Upload size={15} /> {upload.isPending ? 'Uploading…' : 'Upload document'}
+            </button>
+            <input ref={fileRef} type="file" className="hidden" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) upload.mutate(f); e.target.value = ''; }} />
+            <span className="text-xs text-gray-400">PDF / image / office · max 15 MB</span>
+          </div>
+        )}
+        <ErrorText error={upload.error || extract.error || del.error || applyToJob.error} />
+
+        <div className="space-y-2 max-h-56 overflow-y-auto">
+          {docs?.length === 0 && <p className="text-sm text-gray-400">No documents uploaded yet.</p>}
+          {docs?.map((d) => (
+            <div key={d.id} className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText size={15} className="text-gray-400 shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-sm font-medium truncate">{d.originalName || d.name}</div>
+                  <div className="text-xs text-gray-400">{d.category} · {fmtSize(d.sizeBytes)} · {fmtDate(d.uploadedAt)}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <a className="text-primary hover:underline text-sm" href={`/api/documents/${d.id}/download`} target="_blank" rel="noreferrer">Download</a>
+                {canWrite && d.mimeType === 'application/pdf' && (
+                  <button className="text-primary hover:underline text-sm inline-flex items-center gap-1"
+                    onClick={() => extract.mutate(d.id)} disabled={extract.isPending}>
+                    <Sparkles size={13} /> Extract
+                  </button>
+                )}
+                {canWrite && (
+                  <button className="text-red-500 hover:underline text-sm" onClick={() => { if (confirm('Delete this document?')) del.mutate(d.id); }}>
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {extraction && (
+          <div className="card p-3 space-y-2">
+            <div className="text-sm font-semibold flex items-center gap-2">
+              <Sparkles size={14} className="text-primary" /> Extraction result
+              <span className="text-xs font-normal text-gray-400">
+                {extraction.result.documentType} · confidence {Math.round(extraction.result.confidence * 100)}%
+              </span>
+            </div>
+            {extraction.result.needsOcr ? (
+              <p className="text-sm text-amber-600">No text layer found — this looks like a scan. It needs OCR or manual entry.</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                  {Object.entries(extraction.result.fields).map(([k, v]) => (
+                    <div key={k}><span className="text-gray-400">{k}:</span> <span className="font-medium">{v}</span></div>
+                  ))}
+                </div>
+                {canWrite && (extraction.result.fields.portOfLoading || extraction.result.fields.portOfDischarge || extraction.result.fields.blNumber) && (
+                  <button className="btn-primary text-sm" onClick={() => applyToJob.mutate(extraction.result.fields)} disabled={applyToJob.isPending}>
+                    Apply origin / destination / B-L to this job
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         )}
       </div>
     </Modal>

@@ -28,6 +28,10 @@ services:
       PORT: 4000
       CORS_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
       BASE_CURRENCY: ${BASE_CURRENCY:-MYR}
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      # Persist uploaded document binaries across container restarts.
+      - uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -53,3 +57,4 @@ services:
 
 volumes:
   pgdata:
+  uploads:

@@ -436,14 +436,21 @@ model InvoicePayment {
 }
 
 model JobDocument {
-  id         String   @id @default(uuid())
-  jobId      String
-  job        Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  name       String
-  category   String? // BL, Invoice, Permit, POD...
-  url        String? // object storage key / external URL
-  uploadedAt DateTime @default(now())
+  id           String   @id @default(uuid())
+  jobId        String
+  job          Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  name         String
+  category     String? // BL, Invoice, Permit, POD...
+  url          String? // object storage key / external URL (link-based docs)
+  // Local-volume storage: a uploaded binary lives at storedPath under UPLOAD_DIR.
+  storedPath   String? // relative filename on the upload volume (UUID-based, never user input)
+  originalName String?
+  mimeType     String?
+  sizeBytes    Int?
+  extracted    Json? // structured fields from template extraction (see bl-extract.ts)
+  uploadedAt   DateTime @default(now())
 
+  @@index([jobId])
   @@map("job_documents")
 }
 
