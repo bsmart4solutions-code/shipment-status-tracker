@@ -1,14 +1,20 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuditService } from '../../common/audit.service';
+import { MailService } from '../../common/mail.service';
 import { PrismaService } from '../../common/prisma.service';
 import { requestContext } from '../../common/request-context';
 import { SequenceService } from '../../common/sequence.service';
 import { SettingsService } from '../../common/settings.service';
 import { PaginationDto, paged } from '../../common/dto/pagination.dto';
+import { FxService } from '../../common/fx.service';
 import { computeItem, computeQuotation } from '../costing/costing.engine';
 import { assertQuotationStatusTransition } from '../../common/state-machine';
+import { assertApprovalAllows, requiredApprovalStatus } from './approval.logic';
 import { CreateQuotationDto, QuotationItemDto, UpdateQuotationDto } from './quotations.dto';
+
+/** Minimal HTML escaping for values interpolated into email markup. */
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 @Injectable()
 export class QuotationsService {
@@ -17,7 +23,38 @@ export class QuotationsService {
     private seq: SequenceService,
     private settings: SettingsService,
     private audit: AuditService,
+    private mail: MailService,
+    private fx: FxService,
   ) {}
+
+  /**
+   * Approval decision for a quotation total: convert to the base currency
+   * (missing fx rates fall back 1:1 — the safer direction here is to ASK for
+   * approval rather than skip it) and compare against the configured
+   * threshold ("approval.quotation.thresholdBase", 0 = approvals disabled).
+   */
+  private async approvalStatusFor(sellingPrice: number, currency: string): Promise<'NOT_REQUIRED' | 'PENDING'> {
+    const threshold = await this.settings.get('approval.quotation.thresholdBase', 0);
+    if (!threshold || threshold <= 0) return 'NOT_REQUIRED';
+    const conv = await this.fx.converter();
+    return requiredApprovalStatus(conv.toBase(sellingPrice, currency), Number(threshold));
+  }
+
+  /** Broadcast a notification to approvers when a quote enters PENDING. */
+  private async notifyPendingApproval(quoteId: string, quoteNumber: string) {
+    await this.prisma.notification
+      .create({
+        data: {
+          type: 'SYSTEM',
+          title: 'Quotation needs approval',
+          message: `${quoteNumber} is over the approval threshold and awaits review`,
+          entityType: 'quotation',
+          entityId: quoteId,
+          dedupeKey: `APPR:${quoteId}`,
+        },
+      })
+      .catch(() => undefined); // dedupe collision -> already notified
+  }
 
   private baseCurrency() {
     return process.env.BASE_CURRENCY || 'MYR';
@@ -115,6 +152,31 @@ export class QuotationsService {
     return quote;
   }
 
+  /** Email the quotation summary to the customer (or an explicit recipient). */
+  async email(id: string, to: string | undefined, message: string | undefined, userId?: string) {
+    const quote = await this.get(id);
+    const recipient = to || quote.customer.email;
+    if (!recipient) throw new BadRequestException('Customer has no email address — provide a recipient');
+
+    const rows = quote.items.map((i) =>
+      `<tr><td>${esc(i.service.name)}</td><td>${esc(i.description ?? '')}</td><td align="right">${Number(i.quantity)}</td><td align="right">${Number(i.unitSell).toFixed(2)}</td><td align="right">${Number(i.totalSell).toFixed(2)}</td></tr>`,
+    ).join('');
+    const html = `
+      <p>Dear ${esc(quote.customer.companyName)},</p>
+      ${message ? `<p>${esc(message)}</p>` : ''}
+      <p>Please find our quotation <strong>${esc(quote.quoteNumber)}</strong> below${quote.validityDate ? ` (valid until ${quote.validityDate.toISOString().slice(0, 10)})` : ''}:</p>
+      <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse">
+        <tr><th>Service</th><th>Description</th><th>Qty</th><th>Unit (${esc(quote.currency)})</th><th>Total (${esc(quote.currency)})</th></tr>
+        ${rows}
+        <tr><td colspan="4" align="right"><strong>Grand Total</strong></td><td align="right"><strong>${Number(quote.sellingPrice).toFixed(2)}</strong></td></tr>
+      </table>
+      <p>${quote.salesPerson ? `Regards,<br/>${esc(quote.salesPerson.fullName)}` : 'Regards'}</p>`;
+
+    const result = await this.mail.send(recipient, `Quotation ${quote.quoteNumber}`, html);
+    await this.audit.log({ userId, action: 'EMAIL', entityType: 'quotation', entityId: id, detail: { to: recipient, simulated: result.simulated } });
+    return { ...result, to: recipient };
+  }
+
   async create(dto: CreateQuotationDto, userId?: string) {
     const defaults = await this.settings.get('quotation.defaults', { markupPct: 20, taxPct: 0, validityDays: 30 });
     const currency = dto.currency || this.baseCurrency();
@@ -131,10 +193,12 @@ export class QuotationsService {
     const validityDate = dto.validityDate
       ? new Date(dto.validityDate)
       : new Date(Date.now() + defaults.validityDays * 86400000);
+    const approvalStatus = await this.approvalStatusFor(totals.sellingPrice, currency);
 
     const quote = await this.prisma.quotation.create({
       data: {
         quoteNumber,
+        approvalStatus,
         customerId: dto.customerId,
         quoteDate: dto.quoteDate ? new Date(dto.quoteDate) : new Date(),
         validityDate,
@@ -156,7 +220,8 @@ export class QuotationsService {
       },
       include: { items: true },
     });
-    await this.audit.log({ userId, action: 'CREATE', entityType: 'quotation', entityId: quote.id, detail: { quoteNumber } });
+    if (approvalStatus === 'PENDING') await this.notifyPendingApproval(quote.id, quoteNumber);
+    await this.audit.log({ userId, action: 'CREATE', entityType: 'quotation', entityId: quote.id, detail: { quoteNumber, approvalStatus } });
     return quote;
   }
 
@@ -222,6 +287,10 @@ export class QuotationsService {
             grossProfit: Number(i.grossProfit), gpPercent: Number(i.gpPercent),
           }));
       const totals = computeQuotation(currentItems, charges);
+      // Any edit re-evaluates approval: a previously APPROVED quote whose
+      // price changed must go through review again, and one that dropped
+      // below the threshold is released.
+      const approvalStatus = await this.approvalStatusFor(totals.sellingPrice, currency);
       const quote = await tx.quotation.update({
         where: { id },
         data: {
@@ -242,21 +311,59 @@ export class QuotationsService {
           grossProfit: totals.grossProfit,
           gpPercent: totals.gpPercent,
           remark: dto.remark ?? existing.remark,
+          approvalStatus,
+          approvedById: null,
+          approvedAt: null,
+          approvalNote: null,
         },
         include: { items: { orderBy: { sortOrder: 'asc' } } },
       });
       const ctx = requestContext.getStore();
       await tx.auditLog.create({ data: { userId, action: 'UPDATE', entityType: 'quotation', entityId: id, ip: ctx?.ip, userAgent: ctx?.userAgent } });
       return quote;
+    }).then(async (quote) => {
+      if (quote.approvalStatus === 'PENDING') await this.notifyPendingApproval(quote.id, quote.quoteNumber);
+      return quote;
     });
   }
 
   async setStatus(id: string, status: 'DRAFT' | 'SENT' | 'WON' | 'LOST' | 'CANCELLED', userId?: string) {
-    const existing = await this.prisma.quotation.findUnique({ where: { id }, select: { status: true } });
+    const existing = await this.prisma.quotation.findUnique({ where: { id }, select: { status: true, approvalStatus: true } });
     if (!existing) throw new NotFoundException('Quotation not found');
     assertQuotationStatusTransition(existing.status, status);
+    if (status === 'SENT' || status === 'WON') assertApprovalAllows(status, existing.approvalStatus);
     const quote = await this.prisma.quotation.update({ where: { id }, data: { status } });
     await this.audit.log({ userId, action: 'STATUS', entityType: 'quotation', entityId: id, detail: { from: existing.status, to: status } });
+    return quote;
+  }
+
+  /** Approve a PENDING quotation (approvals.write). */
+  async approve(id: string, note: string | undefined, userId: string) {
+    const existing = await this.prisma.quotation.findFirst({ where: { id, deletedAt: null }, select: { approvalStatus: true, quoteNumber: true } });
+    if (!existing) throw new NotFoundException('Quotation not found');
+    if (existing.approvalStatus !== 'PENDING') {
+      throw new BadRequestException(`Quotation is ${existing.approvalStatus}, not awaiting approval`);
+    }
+    const quote = await this.prisma.quotation.update({
+      where: { id },
+      data: { approvalStatus: 'APPROVED', approvedById: userId, approvedAt: new Date(), approvalNote: note ?? null },
+    });
+    await this.audit.log({ userId, action: 'APPROVE', entityType: 'quotation', entityId: id, detail: { quoteNumber: existing.quoteNumber, note } });
+    return quote;
+  }
+
+  /** Reject a PENDING quotation; revising the quote re-triggers approval. */
+  async reject(id: string, note: string | undefined, userId: string) {
+    const existing = await this.prisma.quotation.findFirst({ where: { id, deletedAt: null }, select: { approvalStatus: true, quoteNumber: true } });
+    if (!existing) throw new NotFoundException('Quotation not found');
+    if (existing.approvalStatus !== 'PENDING') {
+      throw new BadRequestException(`Quotation is ${existing.approvalStatus}, not awaiting approval`);
+    }
+    const quote = await this.prisma.quotation.update({
+      where: { id },
+      data: { approvalStatus: 'REJECTED', approvedById: userId, approvedAt: new Date(), approvalNote: note ?? null },
+    });
+    await this.audit.log({ userId, action: 'REJECT', entityType: 'quotation', entityId: id, detail: { quoteNumber: existing.quoteNumber, note } });
     return quote;
   }
 
@@ -266,6 +373,7 @@ export class QuotationsService {
     // Conversion implies a WON transition; the state machine is the single
     // source of truth for which statuses may reach WON (blocks CANCELLED/LOST).
     assertQuotationStatusTransition(quote.status, 'WON');
+    assertApprovalAllows('WON', quote.approvalStatus);
     // One quotation converts to at most one job. Fail fast with a friendly
     // message; the DB unique constraint below is the race-safe backstop.
     const existingJob = await this.prisma.job.findUnique({

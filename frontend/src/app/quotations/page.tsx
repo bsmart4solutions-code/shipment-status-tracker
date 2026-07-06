@@ -3,25 +3,43 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { History, Plus, Trash2 } from 'lucide-react';
+import { CheckCircle2, History, Mail, Plus, Trash2, XCircle } from 'lucide-react';
 import { Shell } from '@/components/shell';
+import { ColumnPicker, useColumns } from '@/components/column-picker';
+import { EmailDialog } from '@/components/email-dialog';
 import { Card, ErrorText, GpBadge, Modal, Pagination, StatusBadge, Table } from '@/components/ui';
 import { api, downloadCsv, hasPermission } from '@/lib/api';
 import { fmtDate, fmtMoney } from '@/lib/utils';
+import { exportToXlsx } from '@/lib/xlsx-export';
 
 interface QuoteRow {
   id: string; quoteNumber: string; quoteDate: string; validityDate: string | null;
   status: string; currency: string; totalCost: string; sellingPrice: string;
-  grossProfit: string; gpPercent: string;
+  grossProfit: string; gpPercent: string; approvalStatus: string;
   customer: { companyName: string }; salesPerson?: { fullName: string } | null;
 }
 
+const QUOTE_COLS = ['Quote #', 'Date', 'Customer', 'Sales', 'Valid Until', 'Total Cost', 'Selling Price', 'GP', 'GP %', 'Status'];
+
+function ApprovalBadge({ status }: { status: string }) {
+  if (!status || status === 'NOT_REQUIRED') return null;
+  const cls = status === 'PENDING'
+    ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+    : status === 'APPROVED'
+      ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+      : 'bg-red-50 text-red-700 dark:bg-red-900/40 dark:text-red-300';
+  return <span className={`badge text-xs ml-1 ${cls}`}>{status === 'PENDING' ? 'Needs approval' : status.toLowerCase()}</span>;
+}
+
 export default function QuotationsPage() {
+  const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [showBuilder, setShowBuilder] = useState(false);
   const [historyFor, setHistoryFor] = useState<QuoteRow | null>(null);
+  const [emailFor, setEmailFor] = useState<QuoteRow | null>(null);
+  const cols = useColumns('quotations', QUOTE_COLS);
 
   const { data } = useQuery({
     queryKey: ['quotations', page, search, status],
@@ -30,14 +48,32 @@ export default function QuotationsPage() {
   });
 
   const canWrite = hasPermission('quotations.write');
+  const canApprove = hasPermission('approvals.write');
+
+  const decide = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: 'approve' | 'reject' }) =>
+      api(`/quotations/${id}/${action}`, { method: 'POST', body: JSON.stringify({}) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['quotations'] }),
+  });
+
+  const exportXlsx = () => exportToXlsx('quotations.xlsx', (data?.items ?? []).map((q) => ({
+    'Quote #': q.quoteNumber, Date: fmtDate(q.quoteDate), Customer: q.customer.companyName,
+    Sales: q.salesPerson?.fullName ?? '', 'Valid Until': fmtDate(q.validityDate),
+    Currency: q.currency, 'Total Cost': Number(q.totalCost), 'Selling Price': Number(q.sellingPrice),
+    'Gross Profit': Number(q.grossProfit), 'GP %': Number(q.gpPercent), Status: q.status,
+    Approval: q.approvalStatus,
+  })));
 
   return (
     <Shell title="Quotations" actions={
       <div className="flex gap-2">
+        <ColumnPicker columns={cols} />
+        <button className="btn-ghost" onClick={exportXlsx}>Export Excel</button>
         <button className="btn-ghost" onClick={() => downloadCsv('/reports/quotations/export', 'quotations.csv')}>Export CSV</button>
         {canWrite && <button className="btn-primary" onClick={() => setShowBuilder(true)}><Plus size={15} /> New Quotation</button>}
       </div>
     }>
+      <ErrorText error={decide.error} />
       <div className="flex flex-wrap gap-2 mb-4">
         <input className="input max-w-md" placeholder="Search quote number or customer…"
           value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
@@ -47,23 +83,42 @@ export default function QuotationsPage() {
         </select>
       </div>
 
-      <Table head={['Quote #', 'Date', 'Customer', 'Sales', 'Valid Until', 'Total Cost', 'Selling Price', 'GP', 'GP %', 'Status', '']} empty={data?.items.length === 0}>
+      <Table head={[...cols.visible, '']} empty={data?.items.length === 0}>
         {data?.items.map((q) => (
           <tr key={q.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-            <td className="td font-medium"><Link className="text-primary hover:underline" href={`/quotations/${q.id}`}>{q.quoteNumber}</Link></td>
-            <td className="td text-gray-500">{fmtDate(q.quoteDate)}</td>
-            <td className="td">{q.customer.companyName}</td>
-            <td className="td text-gray-500">{q.salesPerson?.fullName ?? '-'}</td>
-            <td className="td text-gray-500">{fmtDate(q.validityDate)}</td>
-            <td className="td">{fmtMoney(q.totalCost, q.currency)}</td>
-            <td className="td font-medium">{fmtMoney(q.sellingPrice, q.currency)}</td>
-            <td className="td text-emerald-600">{fmtMoney(q.grossProfit, q.currency)}</td>
-            <td className="td"><GpBadge pct={q.gpPercent} /></td>
-            <td className="td"><StatusBadge status={q.status} /></td>
+            {cols.show('Quote #') && <td className="td font-medium"><Link className="text-primary hover:underline" href={`/quotations/${q.id}`}>{q.quoteNumber}</Link></td>}
+            {cols.show('Date') && <td className="td text-gray-500">{fmtDate(q.quoteDate)}</td>}
+            {cols.show('Customer') && <td className="td">{q.customer.companyName}</td>}
+            {cols.show('Sales') && <td className="td text-gray-500">{q.salesPerson?.fullName ?? '-'}</td>}
+            {cols.show('Valid Until') && <td className="td text-gray-500">{fmtDate(q.validityDate)}</td>}
+            {cols.show('Total Cost') && <td className="td">{fmtMoney(q.totalCost, q.currency)}</td>}
+            {cols.show('Selling Price') && <td className="td font-medium">{fmtMoney(q.sellingPrice, q.currency)}</td>}
+            {cols.show('GP') && <td className="td text-emerald-600">{fmtMoney(q.grossProfit, q.currency)}</td>}
+            {cols.show('GP %') && <td className="td"><GpBadge pct={q.gpPercent} /></td>}
+            {cols.show('Status') && <td className="td"><StatusBadge status={q.status} /><ApprovalBadge status={q.approvalStatus} /></td>}
             <td className="td">
-              <button className="text-primary hover:underline text-sm inline-flex items-center gap-1" onClick={() => setHistoryFor(q)}>
-                <History size={13} /> History
-              </button>
+              <div className="flex gap-2 flex-wrap">
+                {canApprove && q.approvalStatus === 'PENDING' && (
+                  <>
+                    <button className="text-emerald-600 hover:underline text-sm inline-flex items-center gap-1"
+                      onClick={() => decide.mutate({ id: q.id, action: 'approve' })} disabled={decide.isPending}>
+                      <CheckCircle2 size={13} /> Approve
+                    </button>
+                    <button className="text-red-500 hover:underline text-sm inline-flex items-center gap-1"
+                      onClick={() => decide.mutate({ id: q.id, action: 'reject' })} disabled={decide.isPending}>
+                      <XCircle size={13} /> Reject
+                    </button>
+                  </>
+                )}
+                {canWrite && (
+                  <button className="text-primary hover:underline text-sm inline-flex items-center gap-1" onClick={() => setEmailFor(q)}>
+                    <Mail size={13} /> Email
+                  </button>
+                )}
+                <button className="text-primary hover:underline text-sm inline-flex items-center gap-1" onClick={() => setHistoryFor(q)}>
+                  <History size={13} /> History
+                </button>
+              </div>
             </td>
           </tr>
         ))}
@@ -72,9 +127,17 @@ export default function QuotationsPage() {
 
       {showBuilder && <QuotationBuilder onClose={() => setShowBuilder(false)} />}
       {historyFor && <RevisionsModal quote={historyFor} onClose={() => setHistoryFor(null)} />}
+      {emailFor && (
+        <EmailDialog
+          title={`Email quotation ${emailFor.quoteNumber}`}
+          endpoint={`/quotations/${emailFor.id}/email`}
+          onClose={() => setEmailFor(null)}
+        />
+      )}
     </Shell>
   );
 }
+
 
 // ─────────────────── Revision history ───────────────────
 

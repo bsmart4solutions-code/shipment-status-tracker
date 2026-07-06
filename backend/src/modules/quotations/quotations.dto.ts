@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import {
-  IsArray, IsDateString, IsIn, IsNumber, IsOptional, IsString, IsUUID, ValidateNested,
+  IsArray, IsDateString, IsEmail, IsIn, IsNumber, IsOptional, IsString, IsUUID, ValidateNested,
 } from 'class-validator';
 
 export class QuotationItemDto {
@@ -43,4 +43,13 @@ export class UpdateQuotationDto extends CreateQuotationDto {
 export class SetStatusDto {
   @IsIn(['DRAFT', 'SENT', 'WON', 'LOST', 'CANCELLED'])
   status: 'DRAFT' | 'SENT' | 'WON' | 'LOST' | 'CANCELLED';
+}
+
+export class SendEmailDto {
+  @IsOptional() @IsEmail() to?: string;
+  @IsOptional() @IsString() message?: string;
+}
+
+export class ApprovalDecisionDto {
+  @IsOptional() @IsString() note?: string;
 }

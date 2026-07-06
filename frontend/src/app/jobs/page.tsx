@@ -4,11 +4,14 @@ import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileText, MapPin, Plus, Receipt, Sparkles, Trash2, Upload } from 'lucide-react';
 import { Shell } from '@/components/shell';
+import { ColumnPicker, useColumns } from '@/components/column-picker';
 import { ErrorText, Modal, Pagination, StatusBadge, Table } from '@/components/ui';
 import { api, hasPermission, uploadFile } from '@/lib/api';
 import { fmtDate, fmtMoney } from '@/lib/utils';
+import { exportToXlsx } from '@/lib/xlsx-export';
 
 const JOB_STATUSES = ['OPEN', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETED', 'CANCELLED'];
+const JOB_COLS = ['Job #', 'Customer', 'Quote', 'Route', 'Vendor', 'ETD / ETA', 'Tracking', 'Revenue', 'Cost', 'Profit', 'Status'];
 
 interface JobRow {
   id: string; jobNumber: string; status: string; origin: string | null; destination: string | null;
@@ -36,6 +39,15 @@ export default function JobsPage() {
   const qc = useQueryClient();
   const canWrite = hasPermission('jobs.write');
   const canInvoice = hasPermission('invoices.write');
+  const cols = useColumns('jobs', JOB_COLS);
+
+  const exportXlsx = () => exportToXlsx('jobs.xlsx', (data?.items ?? []).map((j) => ({
+    'Job #': j.jobNumber, Customer: j.customer.companyName, Quote: j.quotation?.quoteNumber ?? '',
+    Origin: j.origin ?? '', Destination: j.destination ?? '', Vendor: j.vendor?.name ?? '',
+    ETD: fmtDate(j.etd), ETA: fmtDate(j.eta), Tracking: j.trackingNumber ?? '',
+    Currency: j.currency, Revenue: Number(j.actualRevenue), Cost: Number(j.actualCost),
+    Profit: Number(j.profit), Status: j.status,
+  })));
 
   const genInvoice = useMutation({
     mutationFn: (jobId: string) => api<{ invoiceNumber: string }>(`/invoices/from-job/${jobId}`, { method: 'POST' }),
@@ -46,7 +58,13 @@ export default function JobsPage() {
   });
 
   return (
-    <Shell title="Jobs / Shipments" actions={canWrite ? <button className="btn-primary" onClick={() => setEditing('new')}><Plus size={15} /> New Job</button> : undefined}>
+    <Shell title="Jobs / Shipments" actions={
+      <div className="flex gap-2">
+        <ColumnPicker columns={cols} />
+        <button className="btn-ghost" onClick={exportXlsx}>Export Excel</button>
+        {canWrite && <button className="btn-primary" onClick={() => setEditing('new')}><Plus size={15} /> New Job</button>}
+      </div>
+    }>
       <ErrorText error={genInvoice.error} />
       <div className="flex flex-wrap gap-2 mb-4">
         <input className="input max-w-md" placeholder="Search job #, tracking #, customer…"
@@ -57,20 +75,20 @@ export default function JobsPage() {
         </select>
       </div>
 
-      <Table head={['Job #', 'Customer', 'Quote', 'Route', 'Vendor', 'ETD / ETA', 'Tracking', 'Revenue', 'Cost', 'Profit', 'Status', '']} empty={data?.items.length === 0}>
+      <Table head={[...cols.visible, '']} empty={data?.items.length === 0}>
         {data?.items.map((j) => (
           <tr key={j.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-            <td className="td font-medium text-primary">{j.jobNumber}</td>
-            <td className="td">{j.customer.companyName}</td>
-            <td className="td text-gray-500">{j.quotation?.quoteNumber ?? '-'}</td>
-            <td className="td text-gray-500">{j.origin || '?'} → {j.destination || '?'}</td>
-            <td className="td text-gray-500">{j.vendor?.name ?? '-'}</td>
-            <td className="td text-gray-500">{fmtDate(j.etd)} / {fmtDate(j.eta)}</td>
-            <td className="td text-gray-500">{j.trackingNumber || '-'}</td>
-            <td className="td">{fmtMoney(j.actualRevenue, j.currency)}</td>
-            <td className="td">{fmtMoney(j.actualCost, j.currency)}</td>
-            <td className={`td font-medium ${Number(j.profit) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmtMoney(j.profit, j.currency)}</td>
-            <td className="td"><StatusBadge status={j.status} /></td>
+            {cols.show('Job #') && <td className="td font-medium text-primary">{j.jobNumber}</td>}
+            {cols.show('Customer') && <td className="td">{j.customer.companyName}</td>}
+            {cols.show('Quote') && <td className="td text-gray-500">{j.quotation?.quoteNumber ?? '-'}</td>}
+            {cols.show('Route') && <td className="td text-gray-500">{j.origin || '?'} → {j.destination || '?'}</td>}
+            {cols.show('Vendor') && <td className="td text-gray-500">{j.vendor?.name ?? '-'}</td>}
+            {cols.show('ETD / ETA') && <td className="td text-gray-500">{fmtDate(j.etd)} / {fmtDate(j.eta)}</td>}
+            {cols.show('Tracking') && <td className="td text-gray-500">{j.trackingNumber || '-'}</td>}
+            {cols.show('Revenue') && <td className="td">{fmtMoney(j.actualRevenue, j.currency)}</td>}
+            {cols.show('Cost') && <td className="td">{fmtMoney(j.actualCost, j.currency)}</td>}
+            {cols.show('Profit') && <td className={`td font-medium ${Number(j.profit) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmtMoney(j.profit, j.currency)}</td>}
+            {cols.show('Status') && <td className="td"><StatusBadge status={j.status} /></td>}
             <td className="td">
               <div className="flex gap-2">
                 <button className="text-primary hover:underline text-sm" onClick={() => setTracking(j)}>Track</button>

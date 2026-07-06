@@ -4,7 +4,7 @@ import { RequirePermission } from '../../common/decorators/permissions.decorator
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
-import { CreateInvoiceDto, RecordPaymentDto, UpdateInvoiceDto } from './invoices.dto';
+import { CreateInvoiceDto, RecordPaymentDto, SendInvoiceEmailDto, UpdateInvoiceDto } from './invoices.dto';
 import { InvoicesService } from './invoices.service';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -56,5 +56,10 @@ export class InvoicesController {
   @Post(':id/payments') @RequirePermission('invoices.write')
   recordPayment(@Param('id') id: string, @Body() dto: RecordPaymentDto, @CurrentUser() user: { id: string }) {
     return this.invoices.recordPayment(id, dto, user.id);
+  }
+
+  @Post(':id/email') @RequirePermission('invoices.write')
+  email(@Param('id') id: string, @Body() dto: SendInvoiceEmailDto, @CurrentUser() user: { id: string }) {
+    return this.invoices.email(id, dto.to, dto.message, user.id);
   }
 }
