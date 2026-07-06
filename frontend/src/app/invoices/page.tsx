@@ -2,13 +2,17 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Clock, Plus } from 'lucide-react';
+import { Clock, Mail, Plus } from 'lucide-react';
 import { Shell } from '@/components/shell';
+import { ColumnPicker, useColumns } from '@/components/column-picker';
 import { ErrorText, Modal, Pagination, StatusBadge, Table } from '@/components/ui';
 import { api, hasPermission } from '@/lib/api';
 import { fmtDate, fmtMoney } from '@/lib/utils';
+import { exportToXlsx } from '@/lib/xlsx-export';
+import { EmailDialog } from '@/components/email-dialog';
 
 const INVOICE_STATUSES = ['DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'CANCELLED'];
+const INVOICE_COLS = ['Invoice #', 'Customer', 'Job', 'Total', 'Paid', 'Balance', 'Due Date', 'Status'];
 
 interface InvoiceRow {
   id: string; invoiceNumber: string; currency: string; subtotal: string; taxPct: string; taxAmt: string;
@@ -25,6 +29,8 @@ export default function InvoicesPage() {
   const [editing, setEditing] = useState<InvoiceRow | 'new' | null>(null);
   const [paying, setPaying] = useState<InvoiceRow | null>(null);
   const [showAging, setShowAging] = useState(false);
+  const [emailFor, setEmailFor] = useState<InvoiceRow | null>(null);
+  const cols = useColumns('invoices', INVOICE_COLS);
 
   const { data } = useQuery({
     queryKey: ['invoices', page, search, status],
@@ -43,9 +49,19 @@ export default function InvoicesPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['invoices'] }),
   });
 
+  const exportXlsx = () => exportToXlsx('invoices.xlsx', (data?.items ?? []).map((inv) => ({
+    'Invoice #': inv.invoiceNumber, Customer: inv.customer.companyName, Job: inv.job?.jobNumber ?? '',
+    Currency: inv.currency, Subtotal: Number(inv.subtotal), Tax: Number(inv.taxAmt),
+    Total: Number(inv.totalAmount), Paid: Number(inv.amountPaid),
+    Balance: Number(inv.totalAmount) - Number(inv.amountPaid),
+    'Issue Date': fmtDate(inv.issueDate), 'Due Date': fmtDate(inv.dueDate), Status: inv.status,
+  })));
+
   return (
     <Shell title="Invoices" actions={
       <div className="flex gap-2">
+        <ColumnPicker columns={cols} />
+        <button className="btn-ghost" onClick={exportXlsx}>Export Excel</button>
         <button className="btn-ghost" onClick={() => setShowAging(true)}><Clock size={15} /> Aging Report</button>
         {canWrite && <button className="btn-primary" onClick={() => setEditing('new')}><Plus size={15} /> New Invoice</button>}
       </div>
@@ -59,19 +75,19 @@ export default function InvoicesPage() {
         </select>
       </div>
 
-      <Table head={['Invoice #', 'Customer', 'Job', 'Total', 'Paid', 'Balance', 'Due Date', 'Status', '']} empty={data?.items.length === 0}>
+      <Table head={[...cols.visible, '']} empty={data?.items.length === 0}>
         {data?.items.map((inv) => {
           const balance = Number(inv.totalAmount) - Number(inv.amountPaid);
           return (
             <tr key={inv.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-              <td className="td font-medium text-primary">{inv.invoiceNumber}</td>
-              <td className="td">{inv.customer.companyName}</td>
-              <td className="td text-gray-500">{inv.job?.jobNumber ?? '-'}</td>
-              <td className="td">{fmtMoney(inv.totalAmount, inv.currency)}</td>
-              <td className="td text-emerald-600">{fmtMoney(inv.amountPaid, inv.currency)}</td>
-              <td className={`td font-medium ${balance > 0 ? 'text-red-500' : ''}`}>{fmtMoney(balance, inv.currency)}</td>
-              <td className="td text-gray-500">{fmtDate(inv.dueDate)}</td>
-              <td className="td"><StatusBadge status={inv.status} /></td>
+              {cols.show('Invoice #') && <td className="td font-medium text-primary">{inv.invoiceNumber}</td>}
+              {cols.show('Customer') && <td className="td">{inv.customer.companyName}</td>}
+              {cols.show('Job') && <td className="td text-gray-500">{inv.job?.jobNumber ?? '-'}</td>}
+              {cols.show('Total') && <td className="td">{fmtMoney(inv.totalAmount, inv.currency)}</td>}
+              {cols.show('Paid') && <td className="td text-emerald-600">{fmtMoney(inv.amountPaid, inv.currency)}</td>}
+              {cols.show('Balance') && <td className={`td font-medium ${balance > 0 ? 'text-red-500' : ''}`}>{fmtMoney(balance, inv.currency)}</td>}
+              {cols.show('Due Date') && <td className="td text-gray-500">{fmtDate(inv.dueDate)}</td>}
+              {cols.show('Status') && <td className="td"><StatusBadge status={inv.status} /></td>}
               <td className="td">
                 <div className="flex gap-2 flex-wrap justify-end">
                   {canWrite && inv.status === 'DRAFT' && (
@@ -82,6 +98,11 @@ export default function InvoicesPage() {
                   )}
                   {canWrite && (inv.status === 'ISSUED' || inv.status === 'PARTIALLY_PAID') && (
                     <button className="text-primary hover:underline text-sm" onClick={() => setPaying(inv)}>Record Payment</button>
+                  )}
+                  {canWrite && inv.status !== 'DRAFT' && inv.status !== 'CANCELLED' && (
+                    <button className="text-primary hover:underline text-sm inline-flex items-center gap-1" onClick={() => setEmailFor(inv)}>
+                      <Mail size={13} /> Email
+                    </button>
                   )}
                   {canWrite && inv.status !== 'PAID' && inv.status !== 'CANCELLED' && (
                     <button className="text-red-500 hover:underline text-sm" onClick={() => cancel.mutate(inv.id)}>Cancel</button>
@@ -98,6 +119,9 @@ export default function InvoicesPage() {
       {editing && <InvoiceModal invoice={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {paying && <PaymentModal invoice={paying} onClose={() => setPaying(null)} />}
       {showAging && <AgingModal onClose={() => setShowAging(false)} />}
+      {emailFor && (
+        <EmailDialog title={`Email invoice ${emailFor.invoiceNumber}`} endpoint={`/invoices/${emailFor.id}/email`} onClose={() => setEmailFor(null)} />
+      )}
     </Shell>
   );
 }

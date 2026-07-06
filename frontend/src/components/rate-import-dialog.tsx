@@ -163,9 +163,9 @@ export function RateImportDialog({ onClose }: { onClose: () => void }) {
  * Extract rate rows from a raw 2D cell grid. Finds the header row (contains
  * both a POL and a POD column), identifies the container-size columns from it,
  * then reads each subsequent data row until the table ends, emitting one rate
- * per container column that holds a number.
+ * per container column that holds a number. Exported for unit testing.
  */
-function extractRates(grid: unknown[][]): ParsedRate[] {
+export function extractRates(grid: unknown[][]): ParsedRate[] {
   const norm = (v: unknown) => String(v ?? '').trim();
   const lower = (v: unknown) => norm(v).toLowerCase();
 

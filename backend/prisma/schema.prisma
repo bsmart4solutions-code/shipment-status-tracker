@@ -43,6 +43,7 @@ model User {
   jobTrackingEvents JobTrackingEvent[]
   invoicePayments   InvoicePayment[]
   quotationRevisions QuotationRevision[]
+  quotationApprovals Quotation[]       @relation("QuotationApprover")
 
   @@map("users")
 }
@@ -206,6 +207,13 @@ enum QuotationStatus {
   CANCELLED
 }
 
+enum ApprovalStatus {
+  NOT_REQUIRED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model Quotation {
   id            String          @id @default(uuid())
   quoteNumber   String          @unique // auto: QT-2026-0001
@@ -230,6 +238,13 @@ model Quotation {
   grossProfit   Decimal         @default(0) @db.Decimal(14, 2)
   gpPercent     Decimal         @default(0) @db.Decimal(7, 4)
   remark        String?
+  // Approval workflow: quotes at/above the configured base-currency threshold
+  // need approval before SENT/WON (see approval.logic.ts). Edits re-trigger it.
+  approvalStatus ApprovalStatus @default(NOT_REQUIRED)
+  approvedById   String?
+  approvedBy     User?          @relation("QuotationApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  approvedAt     DateTime?
+  approvalNote   String?
   deletedAt     DateTime? // soft delete — non-null means in the recycle bin
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt

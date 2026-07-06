@@ -4,7 +4,7 @@ import { RequirePermission } from '../../common/decorators/permissions.decorator
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
-import { CreateQuotationDto, SetStatusDto, UpdateQuotationDto } from './quotations.dto';
+import { ApprovalDecisionDto, CreateQuotationDto, SendEmailDto, SetStatusDto, UpdateQuotationDto } from './quotations.dto';
 import { QuotationsService } from './quotations.service';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -48,6 +48,21 @@ export class QuotationsController {
   @Post(':id/convert') @RequirePermission('quotations.write')
   convert(@Param('id') id: string, @CurrentUser() user: { id: string }) {
     return this.quotations.convertToJob(id, user.id);
+  }
+
+  @Post(':id/email') @RequirePermission('quotations.write')
+  email(@Param('id') id: string, @Body() dto: SendEmailDto, @CurrentUser() user: { id: string }) {
+    return this.quotations.email(id, dto.to, dto.message, user.id);
+  }
+
+  @Post(':id/approve') @RequirePermission('approvals.write')
+  approve(@Param('id') id: string, @Body() dto: ApprovalDecisionDto, @CurrentUser() user: { id: string }) {
+    return this.quotations.approve(id, dto.note, user.id);
+  }
+
+  @Post(':id/reject') @RequirePermission('approvals.write')
+  reject(@Param('id') id: string, @Body() dto: ApprovalDecisionDto, @CurrentUser() user: { id: string }) {
+    return this.quotations.reject(id, dto.note, user.id);
   }
 
   @Delete(':id') @RequirePermission('quotations.write')

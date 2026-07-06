@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuditService } from '../../common/audit.service';
+import { MailService } from '../../common/mail.service';
 import { PrismaService } from '../../common/prisma.service';
 import { requestContext } from '../../common/request-context';
 import { SequenceService } from '../../common/sequence.service';
@@ -15,7 +16,38 @@ export class InvoicesService {
     private prisma: PrismaService,
     private seq: SequenceService,
     private audit: AuditService,
+    private mail: MailService,
   ) {}
+
+  /** Email the invoice summary to the customer (or an explicit recipient). */
+  async email(id: string, to: string | undefined, message: string | undefined, userId?: string) {
+    const inv = await this.get(id);
+    if (inv.status === 'DRAFT') throw new BadRequestException('Issue the invoice before emailing it');
+    const recipient = to || inv.customer.email;
+    if (!recipient) throw new BadRequestException('Customer has no email address — provide a recipient');
+
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const balance = (Number(inv.totalAmount) - Number(inv.amountPaid)).toFixed(2);
+    const html = `
+      <p>Dear ${esc(inv.customer.companyName)},</p>
+      ${message ? `<p>${esc(message)}</p>` : ''}
+      <p>Please find the details of invoice <strong>${esc(inv.invoiceNumber)}</strong>:</p>
+      <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse">
+        <tr><td>Issue Date</td><td>${inv.issueDate.toISOString().slice(0, 10)}</td></tr>
+        ${inv.dueDate ? `<tr><td>Due Date</td><td>${inv.dueDate.toISOString().slice(0, 10)}</td></tr>` : ''}
+        ${inv.job ? `<tr><td>Job</td><td>${esc(inv.job.jobNumber)}</td></tr>` : ''}
+        <tr><td>Subtotal</td><td align="right">${esc(inv.currency)} ${Number(inv.subtotal).toFixed(2)}</td></tr>
+        <tr><td>Tax</td><td align="right">${esc(inv.currency)} ${Number(inv.taxAmt).toFixed(2)}</td></tr>
+        <tr><td><strong>Total</strong></td><td align="right"><strong>${esc(inv.currency)} ${Number(inv.totalAmount).toFixed(2)}</strong></td></tr>
+        <tr><td>Paid</td><td align="right">${esc(inv.currency)} ${Number(inv.amountPaid).toFixed(2)}</td></tr>
+        <tr><td><strong>Balance Due</strong></td><td align="right"><strong>${esc(inv.currency)} ${balance}</strong></td></tr>
+      </table>
+      <p>Regards</p>`;
+
+    const result = await this.mail.send(recipient, `Invoice ${inv.invoiceNumber}`, html);
+    await this.audit.log({ userId, action: 'EMAIL', entityType: 'invoice', entityId: id, detail: { to: recipient, simulated: result.simulated } });
+    return { ...result, to: recipient };
+  }
 
   /** subtotal + tax, computed server-side so the client can't send an arbitrary total. */
   private totals(subtotal: number, taxPct: number) {

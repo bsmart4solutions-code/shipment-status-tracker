@@ -1,4 +1,4 @@
-import { IsDateString, IsNumber, IsOptional, IsPositive, IsString, IsUUID, Min } from 'class-validator';
+import { IsDateString, IsEmail, IsNumber, IsOptional, IsPositive, IsString, IsUUID, Min } from 'class-validator';
 
 export class CreateInvoiceDto {
   @IsUUID() customerId: string;
@@ -27,4 +27,9 @@ export class RecordPaymentDto {
   @IsOptional() @IsDateString() paidAt?: string;
   @IsOptional() @IsString() method?: string;
   @IsOptional() @IsString() reference?: string;
+}
+
+export class SendInvoiceEmailDto {
+  @IsOptional() @IsEmail() to?: string;
+  @IsOptional() @IsString() message?: string;
 }
