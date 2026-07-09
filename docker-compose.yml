@@ -1,4 +1,4 @@
-# Logistics ERP & CRM — full stack
+﻿# Logistics ERP & CRM — full stack
 #   docker compose up -d --build
 #   web: http://localhost:3000   api: http://localhost:4000/api
 # First run seeds nothing automatically; exec into api to seed:
@@ -13,6 +13,8 @@ services:
       POSTGRES_DB: logistics_erp
     volumes:
       - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U erp -d logistics_erp"]
       interval: 5s
@@ -30,14 +32,12 @@ services:
       BASE_CURRENCY: ${BASE_CURRENCY:-MYR}
       UPLOAD_DIR: /app/uploads
     volumes:
-      # Persist uploaded document binaries across container restarts.
       - uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
     ports:
       - "4000:4000"
-    # Readiness probe: exits non-zero until the DB-backed /health/ready returns 200.
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/api/health/ready',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 10s

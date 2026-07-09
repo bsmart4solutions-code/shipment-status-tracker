@@ -4,7 +4,7 @@
  * and default settings (rating weights, alert thresholds).
  */
 import { PrismaClient, RateType, QuotationStatus, JobStatus } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
