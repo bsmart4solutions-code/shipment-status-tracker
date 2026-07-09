@@ -1,10 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
-  async rewrites() {
-    // Proxy /api/* to the NestJS backend so the browser talks to one origin.
-    const api = process.env.API_URL || 'http://localhost:4000';
-    return [{ source: '/api/:path*', destination: `${api}/api/:path*` }];
-  },
+  // API proxy is now handled by src/app/api/[...path]/route.ts (API route handler)
+  // which is more reliable than rewrites in dev mode
 };
 export default nextConfig;
