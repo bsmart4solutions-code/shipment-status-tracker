@@ -32,6 +32,11 @@ services:
           property: connectionString
       - key: JWT_SECRET
         generateValue: true
+      # Overrides the public demo password (Admin@123) from prisma/seed.ts.
+      # Retrieve this from the Render dashboard (Environment tab) to log in
+      # as admin@erp.local the first time — it is never printed to logs.
+      - key: SEED_ADMIN_PASSWORD
+        generateValue: true
       - key: JWT_EXPIRES_IN
         value: 8h
       - key: PORT

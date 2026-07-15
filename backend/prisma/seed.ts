@@ -81,9 +81,19 @@ async function main() {
   }
 
   // ── Users ────────────────────────────────────────────────────────
+  // This repo is public, so the demo password below is public knowledge —
+  // never let it reach a real deployment. Production must supply its own
+  // SEED_ADMIN_PASSWORD (Render: set via generateValue in render.yaml);
+  // dev/test keep the documented demo login unless overridden.
+  const seedPassword = process.env.SEED_ADMIN_PASSWORD || 'Admin@123';
+  if (process.env.NODE_ENV === 'production' && !process.env.SEED_ADMIN_PASSWORD) {
+    throw new Error(
+      'Refusing to seed production with the public demo password — set SEED_ADMIN_PASSWORD.'
+    );
+  }
   const adminRole = await prisma.role.findUniqueOrThrow({ where: { name: 'Administrator' } });
   const salesRole = await prisma.role.findUniqueOrThrow({ where: { name: 'Sales' } });
-  const hash = await bcrypt.hash('Admin@123', 10);
+  const hash = await bcrypt.hash(seedPassword, 10);
   const admin = await prisma.user.upsert({
     where: { email: 'admin@erp.local' },
     update: {},
