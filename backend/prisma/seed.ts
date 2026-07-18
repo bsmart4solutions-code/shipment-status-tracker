@@ -285,7 +285,8 @@ async function main() {
       shipmentDate: new Date('2026-05-20'), etd: new Date('2026-05-20'), eta: new Date('2026-05-21'),
       origin: 'Kuala Lumpur', destination: 'Kuching', vendorId: ven1.id,
       trackingNumber: 'SWA-889123', status: JobStatus.COMPLETED,
-      actualCost: 1585, actualRevenue: 2138.4, profit: 553.4, currency: 'MYR',
+      // actualRevenue is net of SST (quote grand 2138.40 − tax 158.40)
+      actualCost: 1585, actualRevenue: 1980, profit: 395, currency: 'MYR',
     },
   });
   await prisma.sequence.update({ where: { key: 'job' }, data: { nextValue: 2, yearScope: 2026 } });

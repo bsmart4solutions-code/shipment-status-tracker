@@ -123,7 +123,10 @@ export class InvoicesService {
   async generateFromJob(jobId: string, userId?: string) {
     const job = await this.prisma.job.findFirst({
       where: { id: jobId, deletedAt: null },
-      select: { id: true, jobNumber: true, customerId: true, currency: true, actualRevenue: true, status: true },
+      select: {
+        id: true, jobNumber: true, customerId: true, currency: true, actualRevenue: true, status: true,
+        quotation: { select: { taxPct: true, taxAmt: true } },
+      },
     });
     if (!job) throw new NotFoundException('Job not found');
     if (Number(job.actualRevenue) <= 0) {
@@ -136,8 +139,15 @@ export class InvoicesService {
     if (existing) {
       throw new ConflictException(`Job ${job.jobNumber} is already invoiced (${existing.invoiceNumber})`);
     }
+    // actualRevenue is net of SST. Carry the source quotation's ACTUAL tax
+    // amount rather than recomputing subtotal × taxPct — the quote's tax base
+    // excludes SST-exempt lines (ocean freight), so a flat percentage would
+    // overbill. Manually-created jobs (no quotation) stay untaxed here and
+    // the draft can be edited before issuing.
     const subtotal = Number(job.actualRevenue);
-    const { taxAmt, totalAmount } = this.totals(subtotal, 0);
+    const taxAmt = Number(job.quotation?.taxAmt ?? 0);
+    const taxPct = Number(job.quotation?.taxPct ?? 0);
+    const totalAmount = subtotal + taxAmt;
     const invoiceNumber = await this.seq.next('invoice');
     const invoice = await this.prisma.invoice.create({
       data: {
@@ -146,7 +156,7 @@ export class InvoicesService {
         customerId: job.customerId,
         currency: job.currency,
         subtotal,
-        taxPct: 0,
+        taxPct,
         taxAmt,
         totalAmount,
       },
@@ -184,11 +194,28 @@ export class InvoicesService {
     return invoice;
   }
 
+  /**
+   * Days until due, derived from the customer's payment term. "NET 30" -> 30,
+   * cash-like terms -> due immediately, anything else -> 30-day default.
+   */
+  private dueDaysFromTerm(paymentTerm: string | null | undefined): number {
+    if (!paymentTerm) return 30;
+    const net = /net\s*(\d+)/i.exec(paymentTerm);
+    if (net) return Number(net[1]);
+    if (/cash|cod|immediate/i.test(paymentTerm)) return 0;
+    return 30;
+  }
+
   async issue(id: string, userId?: string) {
-    const existing = await this.prisma.invoice.findUnique({ where: { id } });
+    const existing = await this.prisma.invoice.findUnique({ where: { id }, include: { customer: { select: { paymentTerm: true } } } });
     if (!existing) throw new NotFoundException('Invoice not found');
     assertInvoiceStatusTransition(existing.status, 'ISSUED');
-    const invoice = await this.prisma.invoice.update({ where: { id }, data: { status: 'ISSUED' } });
+    // An issued invoice must carry a due date or the AR aging report can
+    // never age it — default from the customer's payment term when the user
+    // didn't set one explicitly on the draft.
+    const dueDate = existing.dueDate
+      ?? new Date(Date.now() + this.dueDaysFromTerm(existing.customer?.paymentTerm) * 86400000);
+    const invoice = await this.prisma.invoice.update({ where: { id }, data: { status: 'ISSUED', dueDate } });
     await this.audit.log({ userId, action: 'STATUS', entityType: 'invoice', entityId: id, detail: { from: existing.status, to: 'ISSUED' } });
     return invoice;
   }

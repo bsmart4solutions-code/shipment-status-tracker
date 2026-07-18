@@ -421,8 +421,16 @@ export class QuotationsService {
             vendorId: primaryVendorId,
             currency: quote.currency,
             actualCost: quote.totalCost,
-            actualRevenue: quote.sellingPrice,
+            // Net of SST: sellingPrice is the tax-inclusive grand total, but
+            // collected tax is not revenue. Keeps actualRevenue − actualCost
+            // equal to profit, and the job-based P&L consistent with the
+            // quotation-based P&L (which already reports net of tax).
+            actualRevenue: Number(quote.sellingPrice) - Number(quote.taxAmt),
             profit: quote.grossProfit,
+            // Carry the freight lane onto the job so ops sees it without
+            // opening the source quotation.
+            origin: quote.pol,
+            destination: quote.pod,
             status: 'OPEN',
           },
         });
