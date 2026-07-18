@@ -1,8 +1,9 @@
 'use client';
 
 /** Small shared UI primitives (shadcn-style, hand-rolled to stay dependency-light). */
+import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { X } from 'lucide-react';
+import { Check, ChevronDown, X } from 'lucide-react';
 
 export function Card({ className, children }: { className?: string; children: React.ReactNode }) {
   return <div className={cn('card p-4', className)}>{children}</div>;
@@ -36,10 +37,11 @@ export function StatusBadge({ status }: { status: string }) {
   return <span className={cn('badge', STATUS_COLORS[status] ?? STATUS_COLORS.DRAFT)}>{status.replace(/_/g, ' ')}</span>;
 }
 
-export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+export function Modal({ title, onClose, children, wide, size }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean; size?: 'xl' }) {
+  const maxWidth = size === 'xl' ? 'max-w-6xl' : wide ? 'max-w-4xl' : 'max-w-lg';
   return (
     <div className="fixed inset-0 bg-black/50 z-40 flex items-center justify-center p-4" onClick={onClose}>
-      <div className={cn('card w-full max-h-[92vh] overflow-y-auto', wide ? 'max-w-4xl' : 'max-w-lg')} onClick={(e) => e.stopPropagation()}>
+      <div className={cn('card w-full max-h-[92vh] overflow-y-auto', maxWidth)} onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-between items-center px-5 py-4 border-b border-gray-200 dark:border-gray-800 sticky top-0 bg-white dark:bg-gray-900 z-10">
           <h2 className="font-bold">{title}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
@@ -88,4 +90,104 @@ export function GpBadge({ pct }: { pct: number | string }) {
     : v >= 10 ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
     : 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300';
   return <span className={cn('badge', color)}>{v.toFixed(1)}%</span>;
+}
+
+export interface SearchableOption { value: string; label: string; sublabel?: string }
+
+/**
+ * Type-to-filter dropdown for picking one record out of a list (customers,
+ * vendors, services…) by ID. A plain <select> gets unusable once the list
+ * grows past a couple dozen rows — this keeps the same value/onChange(id)
+ * contract but filters options as you type and supports arrow-key nav.
+ */
+export function SearchableSelect({
+  value, onChange, options, placeholder = 'Search…', disabled, allowClear = true,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: SearchableOption[];
+  placeholder?: string;
+  disabled?: boolean;
+  allowClear?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [highlight, setHighlight] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selected = options.find((o) => o.value === value);
+
+  useEffect(() => {
+    function onOutside(e: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery('');
+      }
+    }
+    document.addEventListener('mousedown', onOutside);
+    return () => document.removeEventListener('mousedown', onOutside);
+  }, []);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? options.filter((o) => o.label.toLowerCase().includes(q) || o.sublabel?.toLowerCase().includes(q))
+    : options;
+
+  function pick(opt: SearchableOption) {
+    onChange(opt.value);
+    setOpen(false);
+    setQuery('');
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setHighlight((h) => Math.min(h + 1, filtered.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (open && filtered[highlight]) pick(filtered[highlight]); }
+    else if (e.key === 'Escape') { setOpen(false); setQuery(''); }
+  }
+
+  return (
+    <div className="relative" ref={rootRef}>
+      <div className="relative">
+        <input
+          className="input pr-8"
+          placeholder={placeholder}
+          disabled={disabled}
+          value={open ? query : (selected?.label ?? '')}
+          onFocus={() => { setOpen(true); setQuery(''); setHighlight(0); }}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); setHighlight(0); }}
+          onKeyDown={onKeyDown}
+        />
+        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+          {allowClear && selected && !open && (
+            <button type="button" tabIndex={-1} className="text-gray-400 hover:text-gray-600" onClick={() => onChange('')}>
+              <X size={14} />
+            </button>
+          )}
+          <ChevronDown size={14} className="text-gray-400 pointer-events-none" />
+        </div>
+      </div>
+      {open && (
+        <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto card !shadow-lg py-1">
+          {filtered.length === 0 && <div className="px-3 py-2 text-sm text-gray-400">No matches</div>}
+          {filtered.map((o, i) => (
+            <div
+              key={o.value}
+              className={cn(
+                'px-3 py-2 text-sm cursor-pointer flex items-center justify-between gap-2',
+                i === highlight ? 'bg-primary/10' : 'hover:bg-gray-50 dark:hover:bg-gray-800',
+              )}
+              onMouseEnter={() => setHighlight(i)}
+              onMouseDown={(e) => { e.preventDefault(); pick(o); }}
+            >
+              <span className="truncate">
+                {o.label}
+                {o.sublabel && <span className="text-gray-400"> — {o.sublabel}</span>}
+              </span>
+              {o.value === value && <Check size={14} className="text-primary shrink-0" />}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }

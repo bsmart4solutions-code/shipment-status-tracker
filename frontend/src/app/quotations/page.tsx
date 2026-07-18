@@ -3,11 +3,14 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, History, Mail, Plus, Trash2, XCircle } from 'lucide-react';
+import {
+  Calculator, CheckCircle2, FileText, History, Mail, MessageSquare, Package, Plus,
+  Receipt, Trash2, Users, XCircle,
+} from 'lucide-react';
 import { Shell } from '@/components/shell';
 import { ColumnPicker, useColumns } from '@/components/column-picker';
 import { EmailDialog } from '@/components/email-dialog';
-import { Card, ErrorText, GpBadge, Modal, Pagination, StatusBadge, Table } from '@/components/ui';
+import { Card, ErrorText, GpBadge, Modal, Pagination, SearchableSelect, StatusBadge, Table } from '@/components/ui';
 import { api, downloadCsv, hasPermission } from '@/lib/api';
 import { fmtDate, fmtMoney } from '@/lib/utils';
 import { exportToXlsx } from '@/lib/xlsx-export';
@@ -189,6 +192,18 @@ interface ItemDraft {
 }
 
 const CURRENCIES = ['MYR', 'USD', 'SGD', 'EUR', 'CNY'];
+const UNIT_OPTIONS = ['KG', 'CBM', 'TON', 'CONTAINER 20FT', 'CONTAINER 40FT', 'TRIP', 'SET', 'PKG', 'LOT', 'SHIPMENT', 'HOUR', 'DAY'];
+
+function SectionHeader({ icon: Icon, title, action }: { icon: React.ElementType; title: string; action?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+        <Icon size={13} /> {title}
+      </div>
+      {action}
+    </div>
+  );
+}
 
 function QuotationBuilder({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -269,89 +284,136 @@ function QuotationBuilder({ onClose }: { onClose: () => void }) {
     setItems((prev) => prev.map((it, i) => (i === index ? { ...it, ...patch } : it)));
 
   return (
-    <Modal title="New Quotation — Costing Engine" onClose={onClose} wide>
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="col-span-2">
-            <label className="label">Customer</label>
-            <select className="input" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
-              <option value="">— select customer —</option>
-              {customers?.items.map((c) => <option key={c.id} value={c.id}>{c.companyName}</option>)}
-            </select>
-          </div>
-          <div><label className="label">Quote Currency</label>
-            <select className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></div>
-          <div><label className="label">Tax %</label><input className="input" type="number" step="0.01" value={taxPct} onChange={(e) => setTaxPct(Number(e.target.value))} /></div>
+    <Modal title="New Quotation — Costing Engine" onClose={onClose} size="xl">
+      <div className="space-y-5">
+        <div>
+          <SectionHeader icon={Users} title="Customer & Terms" />
+          <Card className="!p-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="col-span-2">
+                <label className="label">Customer <span className="text-red-500">*</span></label>
+                <SearchableSelect
+                  value={customerId}
+                  onChange={setCustomerId}
+                  placeholder="Search customer…"
+                  options={(customers?.items ?? []).map((c) => ({ value: c.id, label: c.companyName }))}
+                />
+              </div>
+              <div><label className="label">Quote Currency</label>
+                <select className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></div>
+              <div><label className="label">Tax %</label><input className="input" type="number" step="0.01" min="0" value={taxPct} onChange={(e) => setTaxPct(Number(e.target.value))} /></div>
+            </div>
+          </Card>
         </div>
 
         <div>
-          <div className="flex justify-between items-center mb-2">
-            <label className="label !mb-0">Cost Items</label>
-            <button type="button" className="text-primary text-sm" onClick={() => setItems([...items, { serviceId: '', vendorId: '', description: '', quantity: 1, unit: '', costCurrency: currency, unitCost: 0, markupPct: 20 }])}>
-              + Add item
+          <SectionHeader icon={Package} title={`Cost Items (${items.length})`} action={
+            <button type="button" className="btn-ghost !py-1.5 !px-3 text-xs"
+              onClick={() => setItems([...items, { serviceId: '', vendorId: '', description: '', quantity: 1, unit: '', costCurrency: currency, unitCost: 0, markupPct: 20 }])}>
+              <Plus size={13} /> Add Item
             </button>
-          </div>
-          <div className="space-y-2">
+          } />
+          <div className="space-y-3">
             {items.map((item, i) => (
-              <Card key={i} className="!p-3">
-                <div className="grid grid-cols-2 md:grid-cols-6 gap-2 items-end">
-                  <div className="col-span-2">
-                    <label className="label !text-xs">Service</label>
-                    <select className="input" value={item.serviceId}
-                      onChange={(e) => { set(i, { serviceId: e.target.value }); if (e.target.value) autofillFromRates(i, e.target.value); }}>
-                      <option value="">— select —</option>
-                      {services?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
-                  </div>
-                  <div className="col-span-2">
-                    <label className="label !text-xs">Vendor (auto-recommended)</label>
-                    <select className="input" value={item.vendorId} onChange={(e) => set(i, { vendorId: e.target.value })}>
-                      <option value="">— none —</option>
-                      {vendors?.items.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                    </select>
-                  </div>
-                  <div><label className="label !text-xs">Qty</label><input className="input" type="number" step="0.01" min="0.01" value={item.quantity} onChange={(e) => set(i, { quantity: Number(e.target.value) })} /></div>
-                  <div><label className="label !text-xs">Unit</label><input className="input" placeholder="KG" value={item.unit} onChange={(e) => set(i, { unit: e.target.value })} /></div>
-                  <div className="col-span-2"><label className="label !text-xs">Description</label><input className="input" value={item.description} onChange={(e) => set(i, { description: e.target.value })} /></div>
-                  <div><label className="label !text-xs">Cost Ccy</label>
-                    <select className="input" value={item.costCurrency} onChange={(e) => set(i, { costCurrency: e.target.value })}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></div>
-                  <div><label className="label !text-xs">Unit Cost</label><input className="input" type="number" step="0.0001" min="0" value={item.unitCost} onChange={(e) => set(i, { unitCost: Number(e.target.value) })} /></div>
-                  <div><label className="label !text-xs">Markup %</label><input className="input" type="number" step="0.01" min="0" value={item.markupPct} onChange={(e) => set(i, { markupPct: Number(e.target.value) })} /></div>
-                  <div className="flex items-center gap-2">
-                    <div className="text-xs text-gray-500">
-                      Sell: <span className="font-semibold text-gray-800 dark:text-gray-200">{fmtMoney(preview.lines[i]?.sell ?? 0, currency)}</span><br />
-                      GP: <span className="text-emerald-600">{fmtMoney(preview.lines[i]?.gp ?? 0, currency)}</span>
+              <Card key={i} className="!p-0 overflow-visible">
+                <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200/60 dark:border-gray-800 rounded-t-xl">
+                  <span className="text-xs font-semibold text-gray-500">Item {i + 1}</span>
+                  <button type="button" className="text-red-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-red-400"
+                    disabled={items.length === 1}
+                    title={items.length === 1 ? 'At least one item is required' : 'Remove item'}
+                    onClick={() => setItems(items.filter((_, x) => x !== i))}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+                <div className="p-3 space-y-3">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    <div className="col-span-2">
+                      <label className="label !text-xs">Service <span className="text-red-500">*</span></label>
+                      <SearchableSelect
+                        value={item.serviceId}
+                        onChange={(v) => { set(i, { serviceId: v }); if (v) autofillFromRates(i, v); }}
+                        placeholder="Search service…"
+                        options={(services ?? []).map((s) => ({ value: s.id, label: s.name }))}
+                      />
                     </div>
-                    <button type="button" className="text-red-400 hover:text-red-600 ml-auto" onClick={() => setItems(items.filter((_, x) => x !== i))}><Trash2 size={15} /></button>
+                    <div className="col-span-2">
+                      <label className="label !text-xs">Vendor <span className="text-gray-400 font-normal normal-case">(auto-recommended)</span></label>
+                      <SearchableSelect
+                        value={item.vendorId}
+                        onChange={(v) => set(i, { vendorId: v })}
+                        placeholder="Search vendor…"
+                        options={(vendors?.items ?? []).map((v) => ({ value: v.id, label: v.name }))}
+                      />
+                    </div>
+                    <div><label className="label !text-xs">Cost Ccy</label>
+                      <select className="input" value={item.costCurrency} onChange={(e) => set(i, { costCurrency: e.target.value })}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></div>
+                  </div>
+                  <div>
+                    <label className="label !text-xs">Description</label>
+                    <input className="input" placeholder="e.g. Ocean freight KUL–SIN, 1× 20' container" value={item.description} onChange={(e) => set(i, { description: e.target.value })} />
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+                    <div><label className="label !text-xs">Qty</label><input className="input text-right" type="number" step="0.01" min="0.01" value={item.quantity} onChange={(e) => set(i, { quantity: Number(e.target.value) })} /></div>
+                    <div>
+                      <label className="label !text-xs">Unit</label>
+                      <input className="input" list="quote-unit-options" placeholder="KG" value={item.unit} onChange={(e) => set(i, { unit: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="label !text-xs">Unit Cost</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">{item.costCurrency}</span>
+                        <input className="input !pl-14 text-right" type="number" step="0.0001" min="0" value={item.unitCost} onChange={(e) => set(i, { unitCost: Number(e.target.value) })} />
+                      </div>
+                    </div>
+                    <div><label className="label !text-xs">Markup %</label><input className="input text-right" type="number" step="0.01" min="0" value={item.markupPct} onChange={(e) => set(i, { markupPct: Number(e.target.value) })} /></div>
+                    <div className="text-right text-xs text-gray-500 leading-tight pb-2">
+                      <div>Sell <span className="font-semibold text-gray-800 dark:text-gray-200">{fmtMoney(preview.lines[i]?.sell ?? 0, currency)}</span></div>
+                      <div>GP <span className="text-emerald-600 font-medium">{fmtMoney(preview.lines[i]?.gp ?? 0, currency)}</span></div>
+                    </div>
                   </div>
                 </div>
               </Card>
             ))}
           </div>
+          <datalist id="quote-unit-options">
+            {UNIT_OPTIONS.map((u) => <option key={u} value={u} />)}
+          </datalist>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
-          <div><label className="label">Discount %</label><input className="input" type="number" step="0.01" value={discountPct} onChange={(e) => setDiscountPct(Number(e.target.value))} /></div>
-          <div><label className="label">Service Charge %</label><input className="input" type="number" step="0.01" value={serviceChargePct} onChange={(e) => setServiceChargePct(Number(e.target.value))} /></div>
-          <div><label className="label">Misc Charges</label><input className="input" type="number" step="0.01" value={miscCharge} onChange={(e) => setMiscCharge(Number(e.target.value))} /></div>
+        <div>
+          <SectionHeader icon={Receipt} title="Adjustments & Charges" />
+          <Card className="!p-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div><label className="label">Discount %</label><input className="input" type="number" step="0.01" value={discountPct} onChange={(e) => setDiscountPct(Number(e.target.value))} /></div>
+              <div><label className="label">Service Charge %</label><input className="input" type="number" step="0.01" value={serviceChargePct} onChange={(e) => setServiceChargePct(Number(e.target.value))} /></div>
+              <div><label className="label">Misc Charges</label><input className="input" type="number" step="0.01" value={miscCharge} onChange={(e) => setMiscCharge(Number(e.target.value))} /></div>
+            </div>
+          </Card>
         </div>
-        <div><label className="label">Remark</label><textarea className="input" rows={2} value={remark} onChange={(e) => setRemark(e.target.value)} /></div>
 
-        <Card className="!bg-gray-50 dark:!bg-gray-800/60">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
-            <div><div className="text-xs text-gray-500">Total Cost</div><div className="font-semibold">{fmtMoney(preview.totalCost, currency)}</div></div>
-            <div><div className="text-xs text-gray-500">Net Sell (before tax)</div><div className="font-semibold">{fmtMoney(preview.net, currency)}</div></div>
-            <div><div className="text-xs text-gray-500">Tax</div><div className="font-semibold">{fmtMoney(preview.tax, currency)}</div></div>
-            <div><div className="text-xs text-gray-500">Selling Price</div><div className="font-bold text-primary">{fmtMoney(preview.grand, currency)}</div></div>
-            <div><div className="text-xs text-gray-500">Gross Profit</div>
-              <div className="font-bold text-emerald-600">{fmtMoney(preview.gp, currency)} <GpBadge pct={preview.gpPct} /></div></div>
-          </div>
-        </Card>
+        <div>
+          <SectionHeader icon={MessageSquare} title="Remark" />
+          <textarea className="input" rows={2} placeholder="Internal notes or terms shown to the customer…" value={remark} onChange={(e) => setRemark(e.target.value)} />
+        </div>
+
+        <div>
+          <SectionHeader icon={Calculator} title="Summary" />
+          <Card className="!bg-primary/5 dark:!bg-primary/10 !border-primary/20">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+              <div><div className="text-xs text-gray-500">Total Cost</div><div className="font-semibold">{fmtMoney(preview.totalCost, currency)}</div></div>
+              <div><div className="text-xs text-gray-500">Net Sell (before tax)</div><div className="font-semibold">{fmtMoney(preview.net, currency)}</div></div>
+              <div><div className="text-xs text-gray-500">Tax</div><div className="font-semibold">{fmtMoney(preview.tax, currency)}</div></div>
+              <div><div className="text-xs text-gray-500">Selling Price</div><div className="text-lg font-bold text-primary">{fmtMoney(preview.grand, currency)}</div></div>
+              <div><div className="text-xs text-gray-500">Gross Profit</div>
+                <div className="font-bold text-emerald-600">{fmtMoney(preview.gp, currency)} <GpBadge pct={preview.gpPct} /></div></div>
+            </div>
+          </Card>
+        </div>
 
         <ErrorText error={save.error} />
         {!hasValidItem && (
-          <p className="text-sm text-amber-600 dark:text-amber-400">
-            Add at least one cost item with a service selected before saving.
+          <p className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+            <FileText size={14} /> Add at least one cost item with a service selected before saving.
           </p>
         )}
         <button className="btn-primary w-full justify-center" disabled={!customerId || !hasValidItem || save.isPending} onClick={() => save.mutate()}>
