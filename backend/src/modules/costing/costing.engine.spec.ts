@@ -78,4 +78,22 @@ describe('Costing engine — quotation totals', () => {
     expect(t.sellingPrice).toBe(0);
     expect(t.gpPercent).toBe(0);
   });
+
+  it('excludes SST-exempt lines (ocean freight) from the tax base', () => {
+    // Mirrors the printed Solid Xpress format: OCEAN FREIGHT is SVE 0%,
+    // every other charge is SV 6%.
+    const mixed = [
+      { ...computeItem({ quantity: 1, unitCost: 2050, markupPct: 0 }), taxExempt: true }, // ocean freight 2050
+      computeItem({ quantity: 1, unitCost: 500, unitSell: 635 }), // THC 635
+    ];
+    const t = computeQuotation(mixed, { taxPct: 6 });
+    expect(t.subtotalSell).toBe(2685);
+    expect(t.taxAmt).toBe(38.1); // 6% of 635 only
+    expect(t.sellingPrice).toBe(2723.1);
+  });
+
+  it('taxes the full net when no line is exempt (unchanged behaviour)', () => {
+    const t = computeQuotation(items, { discountPct: 5, serviceChargePct: 2, miscCharge: 50, taxPct: 8 });
+    expect(t.taxAmt).toBe(157.49); // identical to the pre-exemption engine
+  });
 });

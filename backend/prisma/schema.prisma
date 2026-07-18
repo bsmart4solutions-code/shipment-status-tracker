@@ -225,6 +225,17 @@ model Quotation {
   salesPerson   User?           @relation("SalesPerson", fields: [salesPersonId], references: [id])
   currency      String          @default("MYR")
   status        QuotationStatus @default(DRAFT)
+  // Freight header shown on the printed quotation (Solid Xpress format):
+  // RE line, ports, shipment/shipping terms. All optional free text.
+  subject       String? // RE : QUOTATION FOR SEA EXPORT FROM PKG TO KUCHING DOOR
+  yourRef       String? // customer's reference number
+  attn          String? // attention person on the customer side
+  pol           String? // Port of Loading, e.g. "PORT KLANG, MALAYSIA"
+  pod           String? // Port of Discharge, e.g. "KUCHING, MALAYSIA"
+  shipmentType  String? // "Full Container Load" / "LCL Cargo" / "Air Freight"...
+  goods         String? // cargo description, e.g. "GEARBOX"
+  shippingTerm  String? // Incoterm, e.g. "FREE ON BOARD"
+  paymentTerm   String? // "CASH" / "NET 30"...
   // Costing engine outputs (denormalized totals for fast listing; recomputed on every item change)
   totalCost     Decimal         @default(0) @db.Decimal(14, 2)
   subtotalSell  Decimal         @default(0) @db.Decimal(14, 2)
@@ -282,6 +293,9 @@ model QuotationItem {
   totalSell    Decimal   @default(0) @db.Decimal(14, 2)
   grossProfit  Decimal   @default(0) @db.Decimal(14, 2)
   gpPercent    Decimal   @default(0) @db.Decimal(7, 4)
+  // SST-exempt line (printed as tax code SVE 0%) — Malaysian service tax
+  // does not apply to ocean freight, per the standard quotation T&C.
+  taxExempt    Boolean   @default(false)
   sortOrder    Int       @default(0)
 
   @@index([quotationId])

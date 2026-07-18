@@ -36,6 +36,8 @@ export interface CostingItemResult {
   totalSell: number;
   grossProfit: number;
   gpPercent: number;
+  /** SST-exempt line (e.g. ocean freight) — excluded from the tax base. */
+  taxExempt?: boolean;
 }
 
 export interface QuotationChargesInput {
@@ -101,7 +103,14 @@ export function computeQuotation(items: CostingItemResult[], charges: QuotationC
   const serviceChargeAmt = r2(afterDiscount * (Number(charges.serviceChargePct ?? 0) / 100));
   const miscCharge = r2(Number(charges.miscCharge ?? 0));
   const netSell = r2(afterDiscount + serviceChargeAmt + miscCharge);
-  const taxAmt = r2(netSell * (Number(charges.taxPct ?? 0) / 100));
+  // Tax base excludes SST-exempt lines (ocean freight). Header-level discount
+  // and service charge are attributed proportionally across lines, so with no
+  // exempt items the base equals netSell exactly as before. Misc charge is
+  // treated as a taxable service.
+  const taxableSubtotal = r2(items.reduce((s, i) => s + (i.taxExempt ? 0 : i.totalSell), 0));
+  const taxableRatio = subtotalSell > 0 ? taxableSubtotal / subtotalSell : 1;
+  const taxBase = r2((afterDiscount + serviceChargeAmt) * taxableRatio + miscCharge);
+  const taxAmt = r2(taxBase * (Number(charges.taxPct ?? 0) / 100));
   const sellingPrice = r2(netSell + taxAmt);
 
   const grossProfit = r2(netSell - totalCost);

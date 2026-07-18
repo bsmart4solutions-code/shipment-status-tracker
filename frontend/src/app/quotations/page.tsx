@@ -188,11 +188,13 @@ function RevisionsModal({ quote, onClose }: { quote: QuoteRow; onClose: () => vo
 interface ItemDraft {
   serviceId: string; vendorId: string; rateId?: string; description: string;
   quantity: number; unit: string; costCurrency: string; unitCost: number;
-  minimumCharge?: number; markupPct: number;
+  minimumCharge?: number; markupPct: number; taxExempt: boolean;
 }
 
 const CURRENCIES = ['MYR', 'USD', 'SGD', 'EUR', 'CNY'];
 const UNIT_OPTIONS = ['KG', 'CBM', 'TON', 'CONTAINER 20FT', 'CONTAINER 40FT', 'TRIP', 'SET', 'PKG', 'LOT', 'SHIPMENT', 'HOUR', 'DAY'];
+const SHIPMENT_TYPES = ['Full Container Load', 'LCL Cargo', 'Air Freight', 'Land Transport', 'Transhipment'];
+const SHIPPING_TERMS = ['EXW', 'FCA', 'FOB', 'CFR', 'CIF', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP'];
 
 function SectionHeader({ icon: Icon, title, action }: { icon: React.ElementType; title: string; action?: React.ReactNode }) {
   return (
@@ -212,10 +214,20 @@ function QuotationBuilder({ onClose }: { onClose: () => void }) {
   const [discountPct, setDiscountPct] = useState(0);
   const [serviceChargePct, setServiceChargePct] = useState(0);
   const [miscCharge, setMiscCharge] = useState(0);
-  const [taxPct, setTaxPct] = useState(8);
+  const [taxPct, setTaxPct] = useState(6);
   const [remark, setRemark] = useState('');
+  // Freight header printed on the quotation (Solid Xpress format)
+  const [subject, setSubject] = useState('');
+  const [yourRef, setYourRef] = useState('');
+  const [attn, setAttn] = useState('');
+  const [pol, setPol] = useState('');
+  const [pod, setPod] = useState('');
+  const [shipmentType, setShipmentType] = useState('');
+  const [goods, setGoods] = useState('');
+  const [shippingTerm, setShippingTerm] = useState('');
+  const [paymentTerm, setPaymentTerm] = useState('CASH');
   const [items, setItems] = useState<ItemDraft[]>([
-    { serviceId: '', vendorId: '', description: '', quantity: 1, unit: '', costCurrency: 'MYR', unitCost: 0, markupPct: 20 },
+    { serviceId: '', vendorId: '', description: '', quantity: 1, unit: '', costCurrency: 'MYR', unitCost: 0, markupPct: 20, taxExempt: false },
   ]);
   // A quote with no priced line items isn't a real quotation — mirrors the
   // backend's @ArrayMinSize(1) guard on CreateQuotationDto.items.
@@ -235,7 +247,7 @@ function QuotationBuilder({ onClose }: { onClose: () => void }) {
       const inv = fxRates?.find((r) => r.baseCurrency === currency && r.quoteCurrency === from);
       return inv ? 1 / Number(inv.rate) : 1;
     };
-    let totalCost = 0, subtotal = 0;
+    let totalCost = 0, subtotal = 0, taxableSubtotal = 0;
     const lines = items.map((i) => {
       const rate = fx(i.costCurrency);
       const raw = i.quantity * i.unitCost * rate;
@@ -245,12 +257,16 @@ function QuotationBuilder({ onClose }: { onClose: () => void }) {
       const sell = Math.max(i.quantity * unitSell, min > 0 && raw < min ? min * (1 + i.markupPct / 100) : 0);
       totalCost += cost;
       subtotal += sell;
+      if (!i.taxExempt) taxableSubtotal += sell;
       return { cost, sell, gp: sell - cost };
     });
     const discount = subtotal * (discountPct / 100);
     const svc = (subtotal - discount) * (serviceChargePct / 100);
     const net = subtotal - discount + svc + Number(miscCharge || 0);
-    const tax = net * (taxPct / 100);
+    // Mirrors the backend engine: SST-exempt lines (ocean freight) are
+    // excluded from the tax base; header adjustments split proportionally.
+    const taxableRatio = subtotal > 0 ? taxableSubtotal / subtotal : 1;
+    const tax = ((subtotal - discount + svc) * taxableRatio + Number(miscCharge || 0)) * (taxPct / 100);
     return {
       lines, totalCost, subtotal, net, tax, grand: net + tax,
       gp: net - totalCost, gpPct: net > 0 ? ((net - totalCost) / net) * 100 : 0,
@@ -271,6 +287,9 @@ function QuotationBuilder({ onClose }: { onClose: () => void }) {
       method: 'POST',
       body: JSON.stringify({
         customerId, currency, discountPct, serviceChargePct, miscCharge, taxPct, remark,
+        subject: subject || undefined, yourRef: yourRef || undefined, attn: attn || undefined,
+        pol: pol || undefined, pod: pod || undefined, shipmentType: shipmentType || undefined,
+        goods: goods || undefined, shippingTerm: shippingTerm || undefined, paymentTerm: paymentTerm || undefined,
         items: items.filter((i) => i.serviceId).map((i) => ({
           ...i, vendorId: i.vendorId || undefined, rateId: i.rateId || undefined,
           minimumCharge: i.minimumCharge || undefined,
@@ -301,7 +320,41 @@ function QuotationBuilder({ onClose }: { onClose: () => void }) {
               </div>
               <div><label className="label">Quote Currency</label>
                 <select className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></div>
-              <div><label className="label">Tax %</label><input className="input" type="number" step="0.01" min="0" value={taxPct} onChange={(e) => setTaxPct(Number(e.target.value))} /></div>
+              <div><label className="label">SST %</label><input className="input" type="number" step="0.01" min="0" value={taxPct} onChange={(e) => setTaxPct(Number(e.target.value))} /></div>
+              <div className="col-span-2">
+                <label className="label">Attn <span className="text-gray-400 font-normal">(contact person)</span></label>
+                <input className="input" placeholder="e.g. MR JAMES" value={attn} onChange={(e) => setAttn(e.target.value)} />
+              </div>
+              <div><label className="label">Your Ref No</label><input className="input" value={yourRef} onChange={(e) => setYourRef(e.target.value)} /></div>
+              <div><label className="label">Payment Term</label><input className="input" placeholder="CASH" value={paymentTerm} onChange={(e) => setPaymentTerm(e.target.value)} /></div>
+            </div>
+          </Card>
+        </div>
+
+        <div>
+          <SectionHeader icon={FileText} title="Shipment Details" />
+          <Card className="!p-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="col-span-2 md:col-span-4">
+                <label className="label">Subject <span className="text-gray-400 font-normal">(RE line — auto-generated from POL/POD if left blank)</span></label>
+                <input className="input" placeholder="e.g. QUOTATION FOR SEA EXPORT FROM PKG TO KUCHING DOOR" value={subject} onChange={(e) => setSubject(e.target.value)} />
+              </div>
+              <div><label className="label">POL <span className="text-gray-400 font-normal">(Port of Loading)</span></label>
+                <input className="input" placeholder="PORT KLANG, MALAYSIA" value={pol} onChange={(e) => setPol(e.target.value)} /></div>
+              <div><label className="label">POD <span className="text-gray-400 font-normal">(Port of Discharge)</span></label>
+                <input className="input" placeholder="KUCHING, MALAYSIA" value={pod} onChange={(e) => setPod(e.target.value)} /></div>
+              <div>
+                <label className="label">Shipment Type</label>
+                <input className="input" list="quote-shipment-types" placeholder="Full Container Load" value={shipmentType} onChange={(e) => setShipmentType(e.target.value)} />
+                <datalist id="quote-shipment-types">{SHIPMENT_TYPES.map((t) => <option key={t} value={t} />)}</datalist>
+              </div>
+              <div>
+                <label className="label">Shipping Term <span className="text-gray-400 font-normal">(Incoterm)</span></label>
+                <input className="input" list="quote-shipping-terms" placeholder="FOB" value={shippingTerm} onChange={(e) => setShippingTerm(e.target.value)} />
+                <datalist id="quote-shipping-terms">{SHIPPING_TERMS.map((t) => <option key={t} value={t} />)}</datalist>
+              </div>
+              <div className="col-span-2"><label className="label">Goods <span className="text-gray-400 font-normal">(cargo description)</span></label>
+                <input className="input" placeholder="e.g. GEARBOX" value={goods} onChange={(e) => setGoods(e.target.value)} /></div>
             </div>
           </Card>
         </div>
@@ -309,7 +362,7 @@ function QuotationBuilder({ onClose }: { onClose: () => void }) {
         <div>
           <SectionHeader icon={Package} title={`Cost Items (${items.length})`} action={
             <button type="button" className="btn-ghost !py-1.5 !px-3 text-xs"
-              onClick={() => setItems([...items, { serviceId: '', vendorId: '', description: '', quantity: 1, unit: '', costCurrency: currency, unitCost: 0, markupPct: 20 }])}>
+              onClick={() => setItems([...items, { serviceId: '', vendorId: '', description: '', quantity: 1, unit: '', costCurrency: currency, unitCost: 0, markupPct: 20, taxExempt: false }])}>
               <Plus size={13} /> Add Item
             </button>
           } />
@@ -318,12 +371,18 @@ function QuotationBuilder({ onClose }: { onClose: () => void }) {
               <Card key={i} className="!p-0 overflow-visible">
                 <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200/60 dark:border-gray-800 rounded-t-xl">
                   <span className="text-xs font-semibold text-gray-500">Item {i + 1}</span>
-                  <button type="button" className="text-red-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-red-400"
-                    disabled={items.length === 1}
-                    title={items.length === 1 ? 'At least one item is required' : 'Remove item'}
-                    onClick={() => setItems(items.filter((_, x) => x !== i))}>
-                    <Trash2 size={14} />
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer" title="SST-exempt line, printed as tax code SVE 0% (e.g. ocean freight)">
+                      <input type="checkbox" checked={item.taxExempt} onChange={(e) => set(i, { taxExempt: e.target.checked })} />
+                      SST exempt (SVE 0%)
+                    </label>
+                    <button type="button" className="text-red-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-red-400"
+                      disabled={items.length === 1}
+                      title={items.length === 1 ? 'At least one item is required' : 'Remove item'}
+                      onClick={() => setItems(items.filter((_, x) => x !== i))}>
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
                 <div className="p-3 space-y-3">
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -331,7 +390,13 @@ function QuotationBuilder({ onClose }: { onClose: () => void }) {
                       <label className="label !text-xs">Service <span className="text-red-500">*</span></label>
                       <SearchableSelect
                         value={item.serviceId}
-                        onChange={(v) => { set(i, { serviceId: v }); if (v) autofillFromRates(i, v); }}
+                        onChange={(v) => {
+                          // Ocean freight is SST-exempt per the standard T&C —
+                          // pre-tick the SVE flag (still manually overridable).
+                          const svcName = services?.find((s) => s.id === v)?.name ?? '';
+                          set(i, { serviceId: v, taxExempt: /sea freight|ocean/i.test(svcName) ? true : item.taxExempt });
+                          if (v) autofillFromRates(i, v);
+                        }}
                         placeholder="Search service…"
                         options={(services ?? []).map((s) => ({ value: s.id, label: s.name }))}
                       />

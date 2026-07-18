@@ -50,7 +50,7 @@ export default function QuotationDetailPage({ params }: { params: { id: string }
   return (
     <Shell title={q.quoteNumber} actions={
       <div className="flex gap-2">
-        <button className="btn-ghost" onClick={() => window.print()}><Printer size={15} /> Print / PDF</button>
+        <button className="btn-ghost" onClick={() => router.push(`/quotations/${id}/print`)}><Printer size={15} /> Print / PDF</button>
         {canWrite && q.status !== 'WON' && (
           <button className="btn-primary" onClick={() => convert.mutate()} disabled={convert.isPending}>
             <ArrowRightLeft size={15} /> Convert to Job

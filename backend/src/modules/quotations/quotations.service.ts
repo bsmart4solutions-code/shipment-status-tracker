@@ -106,8 +106,9 @@ export class QuotationsService {
         totalSell: result.totalSell,
         grossProfit: result.grossProfit,
         gpPercent: result.gpPercent,
+        taxExempt: item.taxExempt ?? false,
         sortOrder: i + 1,
-        _result: result,
+        _result: { ...result, taxExempt: item.taxExempt ?? false },
       });
     }
     return priced;
@@ -216,6 +217,15 @@ export class QuotationsService {
         grossProfit: totals.grossProfit,
         gpPercent: totals.gpPercent,
         remark: dto.remark,
+        subject: dto.subject,
+        yourRef: dto.yourRef,
+        attn: dto.attn,
+        pol: dto.pol,
+        pod: dto.pod,
+        shipmentType: dto.shipmentType,
+        goods: dto.goods,
+        shippingTerm: dto.shippingTerm,
+        paymentTerm: dto.paymentTerm,
         items: { create: items.map(({ _result, ...item }) => item) },
       },
       include: { items: true },
@@ -285,6 +295,7 @@ export class QuotationsService {
             unitSell: Number(i.unitSell), markupPct: Number(i.markupPct),
             totalCost: Number(i.totalCost), totalSell: Number(i.totalSell),
             grossProfit: Number(i.grossProfit), gpPercent: Number(i.gpPercent),
+            taxExempt: i.taxExempt,
           }));
       const totals = computeQuotation(currentItems, charges);
       // Any edit re-evaluates approval: a previously APPROVED quote whose
@@ -311,6 +322,15 @@ export class QuotationsService {
           grossProfit: totals.grossProfit,
           gpPercent: totals.gpPercent,
           remark: dto.remark ?? existing.remark,
+          subject: dto.subject ?? existing.subject,
+          yourRef: dto.yourRef ?? existing.yourRef,
+          attn: dto.attn ?? existing.attn,
+          pol: dto.pol ?? existing.pol,
+          pod: dto.pod ?? existing.pod,
+          shipmentType: dto.shipmentType ?? existing.shipmentType,
+          goods: dto.goods ?? existing.goods,
+          shippingTerm: dto.shippingTerm ?? existing.shippingTerm,
+          paymentTerm: dto.paymentTerm ?? existing.paymentTerm,
           approvalStatus,
           approvedById: null,
           approvedAt: null,

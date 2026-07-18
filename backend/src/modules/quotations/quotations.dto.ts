@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import {
-  ArrayMinSize, IsArray, IsDateString, IsEmail, IsIn, IsNumber, IsOptional, IsPositive, IsString,
-  IsUUID, Min, ValidateNested,
+  ArrayMinSize, IsArray, IsBoolean, IsDateString, IsEmail, IsIn, IsNumber, IsOptional, IsPositive,
+  IsString, IsUUID, Min, ValidateNested,
 } from 'class-validator';
 
 export class QuotationItemDto {
@@ -17,6 +17,8 @@ export class QuotationItemDto {
   @IsOptional() @IsNumber() @Min(0) markupPct?: number;
   /** Direct sell price in quotation currency; overrides markupPct when provided. */
   @IsOptional() @IsNumber() @Min(0) unitSell?: number;
+  /** SST-exempt line (printed as SVE 0%), e.g. ocean freight. */
+  @IsOptional() @IsBoolean() taxExempt?: boolean;
 }
 
 export class CreateQuotationDto {
@@ -31,6 +33,16 @@ export class CreateQuotationDto {
   @IsOptional() @IsNumber() miscCharge?: number;
   @IsOptional() @IsNumber() taxPct?: number;
   @IsOptional() @IsString() remark?: string;
+  // Freight header printed on the quotation (all optional free text)
+  @IsOptional() @IsString() subject?: string;
+  @IsOptional() @IsString() yourRef?: string;
+  @IsOptional() @IsString() attn?: string;
+  @IsOptional() @IsString() pol?: string;
+  @IsOptional() @IsString() pod?: string;
+  @IsOptional() @IsString() shipmentType?: string;
+  @IsOptional() @IsString() goods?: string;
+  @IsOptional() @IsString() shippingTerm?: string;
+  @IsOptional() @IsString() paymentTerm?: string;
   // A quotation with zero priced items is not a real quote — the "New
   // Quotation" form used to let you submit one with the default blank row
   // untouched (no service picked), silently creating an empty MYR 0.00 quote.
