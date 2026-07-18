@@ -202,6 +202,9 @@ function QuotationBuilder({ onClose }: { onClose: () => void }) {
   const [items, setItems] = useState<ItemDraft[]>([
     { serviceId: '', vendorId: '', description: '', quantity: 1, unit: '', costCurrency: 'MYR', unitCost: 0, markupPct: 20 },
   ]);
+  // A quote with no priced line items isn't a real quotation — mirrors the
+  // backend's @ArrayMinSize(1) guard on CreateQuotationDto.items.
+  const hasValidItem = items.some((i) => i.serviceId);
 
   const { data: customers } = useQuery({ queryKey: ['customers-all'], queryFn: () => api<{ items: { id: string; companyName: string }[] }>('/customers?pageSize=200') });
   const { data: services } = useQuery({ queryKey: ['services'], queryFn: () => api<{ id: string; name: string }[]>('/services') });
@@ -307,13 +310,13 @@ function QuotationBuilder({ onClose }: { onClose: () => void }) {
                       {vendors?.items.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
                     </select>
                   </div>
-                  <div><label className="label !text-xs">Qty</label><input className="input" type="number" step="0.01" value={item.quantity} onChange={(e) => set(i, { quantity: Number(e.target.value) })} /></div>
+                  <div><label className="label !text-xs">Qty</label><input className="input" type="number" step="0.01" min="0.01" value={item.quantity} onChange={(e) => set(i, { quantity: Number(e.target.value) })} /></div>
                   <div><label className="label !text-xs">Unit</label><input className="input" placeholder="KG" value={item.unit} onChange={(e) => set(i, { unit: e.target.value })} /></div>
                   <div className="col-span-2"><label className="label !text-xs">Description</label><input className="input" value={item.description} onChange={(e) => set(i, { description: e.target.value })} /></div>
                   <div><label className="label !text-xs">Cost Ccy</label>
                     <select className="input" value={item.costCurrency} onChange={(e) => set(i, { costCurrency: e.target.value })}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></div>
-                  <div><label className="label !text-xs">Unit Cost</label><input className="input" type="number" step="0.0001" value={item.unitCost} onChange={(e) => set(i, { unitCost: Number(e.target.value) })} /></div>
-                  <div><label className="label !text-xs">Markup %</label><input className="input" type="number" step="0.01" value={item.markupPct} onChange={(e) => set(i, { markupPct: Number(e.target.value) })} /></div>
+                  <div><label className="label !text-xs">Unit Cost</label><input className="input" type="number" step="0.0001" min="0" value={item.unitCost} onChange={(e) => set(i, { unitCost: Number(e.target.value) })} /></div>
+                  <div><label className="label !text-xs">Markup %</label><input className="input" type="number" step="0.01" min="0" value={item.markupPct} onChange={(e) => set(i, { markupPct: Number(e.target.value) })} /></div>
                   <div className="flex items-center gap-2">
                     <div className="text-xs text-gray-500">
                       Sell: <span className="font-semibold text-gray-800 dark:text-gray-200">{fmtMoney(preview.lines[i]?.sell ?? 0, currency)}</span><br />
@@ -346,7 +349,12 @@ function QuotationBuilder({ onClose }: { onClose: () => void }) {
         </Card>
 
         <ErrorText error={save.error} />
-        <button className="btn-primary w-full justify-center" disabled={!customerId || save.isPending} onClick={() => save.mutate()}>
+        {!hasValidItem && (
+          <p className="text-sm text-amber-600 dark:text-amber-400">
+            Add at least one cost item with a service selected before saving.
+          </p>
+        )}
+        <button className="btn-primary w-full justify-center" disabled={!customerId || !hasValidItem || save.isPending} onClick={() => save.mutate()}>
           {save.isPending ? 'Saving…' : 'Create Quotation'}
         </button>
       </div>

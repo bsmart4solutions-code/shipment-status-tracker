@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
-  IsArray, IsDateString, IsEmail, IsIn, IsNumber, IsOptional, IsString, IsUUID, ValidateNested,
+  ArrayMinSize, IsArray, IsDateString, IsEmail, IsIn, IsNumber, IsOptional, IsPositive, IsString,
+  IsUUID, Min, ValidateNested,
 } from 'class-validator';
 
 export class QuotationItemDto {
@@ -8,14 +9,14 @@ export class QuotationItemDto {
   @IsOptional() @IsUUID() vendorId?: string;
   @IsOptional() @IsUUID() rateId?: string;
   @IsOptional() @IsString() description?: string;
-  @IsNumber() quantity: number;
+  @IsNumber() @IsPositive() quantity: number;
   @IsOptional() @IsString() unit?: string;
   @IsOptional() @IsString() costCurrency?: string;
-  @IsNumber() unitCost: number;
-  @IsOptional() @IsNumber() minimumCharge?: number;
-  @IsOptional() @IsNumber() markupPct?: number;
+  @IsNumber() @Min(0) unitCost: number;
+  @IsOptional() @IsNumber() @Min(0) minimumCharge?: number;
+  @IsOptional() @IsNumber() @Min(0) markupPct?: number;
   /** Direct sell price in quotation currency; overrides markupPct when provided. */
-  @IsOptional() @IsNumber() unitSell?: number;
+  @IsOptional() @IsNumber() @Min(0) unitSell?: number;
 }
 
 export class CreateQuotationDto {
@@ -30,7 +31,11 @@ export class CreateQuotationDto {
   @IsOptional() @IsNumber() miscCharge?: number;
   @IsOptional() @IsNumber() taxPct?: number;
   @IsOptional() @IsString() remark?: string;
-  @IsArray() @ValidateNested({ each: true }) @Type(() => QuotationItemDto)
+  // A quotation with zero priced items is not a real quote — the "New
+  // Quotation" form used to let you submit one with the default blank row
+  // untouched (no service picked), silently creating an empty MYR 0.00 quote.
+  @IsArray() @ArrayMinSize(1, { message: 'Add at least one cost item before saving the quotation' })
+  @ValidateNested({ each: true }) @Type(() => QuotationItemDto)
   items: QuotationItemDto[];
 }
 
