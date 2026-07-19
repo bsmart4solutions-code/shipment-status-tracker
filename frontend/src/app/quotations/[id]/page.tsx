@@ -47,13 +47,25 @@ export default function QuotationDetailPage({ params }: { params: { id: string }
   const canWrite = hasPermission('quotations.write');
   if (!q) return <Shell title="Quotation">Loading…</Shell>;
 
+  // A WON quotation with no job yet can be converted. Once converted (a linked
+  // job exists) the button is replaced by a link to that job. Before WON, the
+  // deal must be marked WON first — the state machine won't convert a lost or
+  // cancelled quote.
+  const alreadyConverted = q.jobs.length > 0;
+  const canConvert = canWrite && q.status === 'WON' && !alreadyConverted;
+
   return (
     <Shell title={q.quoteNumber} actions={
       <div className="flex gap-2">
         <button className="btn-ghost" onClick={() => router.push(`/quotations/${id}/print`)}><Printer size={15} /> Print / PDF</button>
-        {canWrite && q.status !== 'WON' && (
+        {canConvert && (
           <button className="btn-primary" onClick={() => convert.mutate()} disabled={convert.isPending}>
-            <ArrowRightLeft size={15} /> Convert to Job
+            <ArrowRightLeft size={15} /> {convert.isPending ? 'Converting…' : 'Convert to Job'}
+          </button>
+        )}
+        {alreadyConverted && (
+          <button className="btn-ghost" onClick={() => router.push(`/jobs?highlight=${q.jobs[0].id}`)}>
+            <ArrowRightLeft size={15} /> View Job {q.jobs[0].jobNumber}
           </button>
         )}
       </div>
@@ -131,6 +143,18 @@ export default function QuotationDetailPage({ params }: { params: { id: string }
                   onClick={() => setStatus.mutate(s)} disabled={setStatus.isPending || s === q.status}>{s}</button>
               ))}
             </div>
+            {/* Guide the WON → convert flow right where the status is set. */}
+            {canConvert && (
+              <div className="mt-3 flex items-center gap-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 px-3 py-2">
+                <span className="text-sm text-emerald-800 dark:text-emerald-300">This quotation is <b>WON</b> — turn it into a job to start operations.</span>
+                <button className="btn-primary ml-auto" onClick={() => convert.mutate()} disabled={convert.isPending}>
+                  <ArrowRightLeft size={15} /> {convert.isPending ? 'Converting…' : 'Convert to Job'}
+                </button>
+              </div>
+            )}
+            {alreadyConverted && (
+              <p className="mt-3 text-sm text-gray-500">Converted to job <button className="text-primary hover:underline font-medium" onClick={() => router.push(`/jobs?highlight=${q.jobs[0].id}`)}>{q.jobs[0].jobNumber}</button>.</p>
+            )}
             <ErrorText error={setStatus.error || convert.error} />
           </Card>
         )}
