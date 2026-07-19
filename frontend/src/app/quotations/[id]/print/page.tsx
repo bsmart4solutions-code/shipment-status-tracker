@@ -12,7 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Printer, ArrowLeft } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
-import { COMPANY, QUOTATION_TERMS } from '@/lib/company';
+import { useCompany, QUOTATION_TERMS } from '@/lib/company';
 
 interface PrintQuote {
   id: string; quoteNumber: string; quoteDate: string; validityDate: string | null;
@@ -23,7 +23,7 @@ interface PrintQuote {
   subtotalSell: string; discountAmt: string; serviceChargePct: string; miscCharge: string;
   taxPct: string; taxAmt: string; sellingPrice: string;
   customer: { companyName: string; address: string | null; phone: string | null; email: string | null; pic: string | null; paymentTerm: string | null };
-  salesPerson: { fullName: string } | null;
+  salesPerson: { fullName: string; email: string | null; phone: string | null } | null;
   items: {
     id: string; description: string | null; quantity: string; unit: string | null;
     fxRate: string; unitSell: string; totalSell: string; taxExempt: boolean;
@@ -41,6 +41,7 @@ const n4 = (v: string | number) => Number(v).toLocaleString('en-MY', { minimumFr
 
 export default function QuotationPrintPage({ params }: { params: { id: string } }) {
   const router = useRouter();
+  const COMPANY = useCompany();
   const { data: q } = useQuery({ queryKey: ['quotation', params.id], queryFn: () => api<PrintQuote>(`/quotations/${params.id}`) });
 
   if (!q) return <div className="p-10 text-center text-gray-400">Loading…</div>;
@@ -70,12 +71,16 @@ export default function QuotationPrintPage({ params }: { params: { id: string } 
 
         {/* ── Letterhead ── */}
         <div className="flex justify-between items-start border-b-2 border-black pb-2">
-          <div>
-            <div className="text-[15px] font-bold">{COMPANY.name}</div>
-            {COMPANY.addressLines.map((l) => <div key={l}>{l}</div>)}
-            <div>Tel : {COMPANY.tel}</div>
-            <div>Email : {COMPANY.email}</div>
-            <div>Co. No : {COMPANY.coNo}&nbsp;&nbsp;&nbsp;SST ID : {COMPANY.sstId}</div>
+          <div className="flex items-start gap-3">
+            {COMPANY.logoDataUrl && <img src={COMPANY.logoDataUrl} alt="" className="h-14 w-auto object-contain" />}
+            <div>
+              <div className="text-[15px] font-bold">{COMPANY.name}</div>
+              {COMPANY.addressLines.map((l) => <div key={l}>{l}</div>)}
+              <div>Tel : {COMPANY.tel}{COMPANY.fax ? `   Fax : ${COMPANY.fax}` : ''}</div>
+              <div>Email : {COMPANY.email}</div>
+              {COMPANY.website && <div>Web : {COMPANY.website}</div>}
+              <div>Co. No : {COMPANY.coNo}&nbsp;&nbsp;&nbsp;SST ID : {COMPANY.sstId}</div>
+            </div>
           </div>
           <div className="text-[20px] font-bold tracking-widest mt-1">QUOTATION</div>
         </div>
@@ -183,8 +188,10 @@ export default function QuotationPrintPage({ params }: { params: { id: string } 
           <div>
             <div>Yours sincerely,</div>
             <div className="font-semibold mt-1">{COMPANY.name}</div>
-            <div className="mt-10 border-t border-dotted border-black w-56 pt-0.5">
-              {q.salesPerson?.fullName?.toUpperCase() ?? ''}<br />(H/P :)
+            <div className="mt-10 border-t border-dotted border-black w-64 pt-0.5">
+              {q.salesPerson?.fullName?.toUpperCase() ?? ''}
+              {q.salesPerson?.phone && <div>H/P : {q.salesPerson.phone}</div>}
+              {q.salesPerson?.email && <div>Email : {q.salesPerson.email}</div>}
             </div>
           </div>
           <div>

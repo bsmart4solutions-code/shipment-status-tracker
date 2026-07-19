@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Calculator, CheckCircle2, FileText, History, Mail, MessageSquare, Package, Plus,
+  Calculator, CheckCircle2, FileText, History, Mail, MessageSquare, Package, Pencil, Plus,
   Receipt, Trash2, Users, XCircle,
 } from 'lucide-react';
 import { Shell } from '@/components/shell';
@@ -40,6 +40,7 @@ export default function QuotationsPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [showBuilder, setShowBuilder] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
   const [historyFor, setHistoryFor] = useState<QuoteRow | null>(null);
   const [emailFor, setEmailFor] = useState<QuoteRow | null>(null);
   const cols = useColumns('quotations', QUOTE_COLS);
@@ -113,6 +114,11 @@ export default function QuotationsPage() {
                     </button>
                   </>
                 )}
+                {canWrite && !['WON', 'LOST', 'CANCELLED'].includes(q.status) && (
+                  <button className="text-primary hover:underline text-sm inline-flex items-center gap-1" onClick={() => setEditId(q.id)}>
+                    <Pencil size={13} /> Edit
+                  </button>
+                )}
                 {canWrite && (
                   <button className="text-primary hover:underline text-sm inline-flex items-center gap-1" onClick={() => setEmailFor(q)}>
                     <Mail size={13} /> Email
@@ -129,6 +135,7 @@ export default function QuotationsPage() {
       <div className="mt-3"><Pagination page={page} pageCount={data?.pageCount ?? 1} onChange={setPage} /></div>
 
       {showBuilder && <QuotationBuilder onClose={() => setShowBuilder(false)} />}
+      {editId && <QuotationBuilder editId={editId} onClose={() => setEditId(null)} />}
       {historyFor && <RevisionsModal quote={historyFor} onClose={() => setHistoryFor(null)} />}
       {emailFor && (
         <EmailDialog
@@ -207,7 +214,7 @@ function SectionHeader({ icon: Icon, title, action }: { icon: React.ElementType;
   );
 }
 
-function QuotationBuilder({ onClose }: { onClose: () => void }) {
+function QuotationBuilder({ editId, onClose }: { editId?: string; onClose: () => void }) {
   const qc = useQueryClient();
   const [customerId, setCustomerId] = useState('');
   const [currency, setCurrency] = useState('MYR');
@@ -229,9 +236,43 @@ function QuotationBuilder({ onClose }: { onClose: () => void }) {
   const [items, setItems] = useState<ItemDraft[]>([
     { serviceId: '', vendorId: '', description: '', quantity: 1, unit: '', costCurrency: 'MYR', unitCost: 0, markupPct: 20, taxExempt: false },
   ]);
+  const [hydrated, setHydrated] = useState(false);
   // A quote with no priced line items isn't a real quotation — mirrors the
   // backend's @ArrayMinSize(1) guard on CreateQuotationDto.items.
   const hasValidItem = items.some((i) => i.serviceId);
+
+  // Editing: load the existing quotation and hydrate the form once.
+  const { data: editQuote } = useQuery({
+    queryKey: ['quotation-edit', editId],
+    queryFn: () => api<any>(`/quotations/${editId}`),
+    enabled: !!editId,
+  });
+  if (editId && editQuote && !hydrated) {
+    setCustomerId(editQuote.customerId);
+    setCurrency(editQuote.currency);
+    setDiscountPct(Number(editQuote.discountPct));
+    setServiceChargePct(Number(editQuote.serviceChargePct));
+    setMiscCharge(Number(editQuote.miscCharge));
+    setTaxPct(Number(editQuote.taxPct));
+    setRemark(editQuote.remark ?? '');
+    setSubject(editQuote.subject ?? '');
+    setYourRef(editQuote.yourRef ?? '');
+    setAttn(editQuote.attn ?? '');
+    setPol(editQuote.pol ?? '');
+    setPod(editQuote.pod ?? '');
+    setShipmentType(editQuote.shipmentType ?? '');
+    setGoods(editQuote.goods ?? '');
+    setShippingTerm(editQuote.shippingTerm ?? '');
+    setPaymentTerm(editQuote.paymentTerm ?? '');
+    setItems(editQuote.items.map((i: any) => ({
+      serviceId: i.serviceId, vendorId: i.vendorId ?? '', rateId: i.rateId ?? undefined,
+      description: i.description ?? '', quantity: Number(i.quantity), unit: i.unit ?? '',
+      costCurrency: i.costCurrency, unitCost: Number(i.unitCost),
+      minimumCharge: i.minimumCharge != null ? Number(i.minimumCharge) : undefined,
+      markupPct: Number(i.markupPct), taxExempt: i.taxExempt,
+    })));
+    setHydrated(true);
+  }
 
   const { data: customers } = useQuery({ queryKey: ['customers-all'], queryFn: () => api<{ items: { id: string; companyName: string }[] }>('/customers?pageSize=200') });
   const { data: services } = useQuery({ queryKey: ['services'], queryFn: () => api<{ id: string; name: string }[]>('/services') });
@@ -283,8 +324,8 @@ function QuotationBuilder({ onClose }: { onClose: () => void }) {
   }
 
   const save = useMutation({
-    mutationFn: () => api('/quotations', {
-      method: 'POST',
+    mutationFn: () => api(editId ? `/quotations/${editId}` : '/quotations', {
+      method: editId ? 'PUT' : 'POST',
       body: JSON.stringify({
         customerId, currency, discountPct, serviceChargePct, miscCharge, taxPct, remark,
         subject: subject || undefined, yourRef: yourRef || undefined, attn: attn || undefined,
@@ -296,14 +337,18 @@ function QuotationBuilder({ onClose }: { onClose: () => void }) {
         })),
       }),
     }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['quotations'] }); onClose(); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['quotations'] });
+      if (editId) qc.invalidateQueries({ queryKey: ['quotation', editId] });
+      onClose();
+    },
   });
 
   const set = (index: number, patch: Partial<ItemDraft>) =>
     setItems((prev) => prev.map((it, i) => (i === index ? { ...it, ...patch } : it)));
 
   return (
-    <Modal title="New Quotation — Costing Engine" onClose={onClose} size="xl">
+    <Modal title={editId ? `Edit Quotation — ${editQuote?.quoteNumber ?? ''}` : 'New Quotation — Costing Engine'} onClose={onClose} size="xl">
       <div className="space-y-5">
         <div>
           <SectionHeader icon={Users} title="Customer & Terms" />
@@ -482,7 +527,7 @@ function QuotationBuilder({ onClose }: { onClose: () => void }) {
           </p>
         )}
         <button className="btn-primary w-full justify-center" disabled={!customerId || !hasValidItem || save.isPending} onClick={() => save.mutate()}>
-          {save.isPending ? 'Saving…' : 'Create Quotation'}
+          {save.isPending ? 'Saving…' : editId ? 'Save Changes' : 'Create Quotation'}
         </button>
       </div>
     </Modal>

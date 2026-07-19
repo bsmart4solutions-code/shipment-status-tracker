@@ -5,7 +5,7 @@ import { PrismaService } from '../../common/prisma.service';
 import { rethrowPrisma } from '../../common/prisma-errors';
 import { CreateUserDto, UpdateUserDto } from './users.dto';
 
-const SAFE_SELECT = { id: true, email: true, fullName: true, isActive: true, roleId: true, role: { select: { name: true } }, createdAt: true };
+const SAFE_SELECT = { id: true, email: true, fullName: true, phone: true, isActive: true, roleId: true, role: { select: { name: true } }, createdAt: true };
 
 @Injectable()
 export class UsersService {
@@ -18,7 +18,7 @@ export class UsersService {
   async create(dto: CreateUserDto, actorId?: string) {
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const user = await this.prisma.user.create({
-      data: { email: dto.email, fullName: dto.fullName, roleId: dto.roleId, passwordHash },
+      data: { email: dto.email, fullName: dto.fullName, phone: dto.phone, roleId: dto.roleId, passwordHash },
       select: SAFE_SELECT,
     });
     await this.audit.log({ userId: actorId, action: 'CREATE', entityType: 'user', entityId: user.id, detail: { email: user.email, roleId: user.roleId } });
@@ -33,7 +33,7 @@ export class UsersService {
     const existing = await this.prisma.user.findUnique({ where: { id }, select: { fullName: true, roleId: true, isActive: true, email: true } });
     if (!existing) throw new NotFoundException('User not found');
 
-    const data: Record<string, unknown> = { fullName: dto.fullName, roleId: dto.roleId, isActive: dto.isActive };
+    const data: Record<string, unknown> = { fullName: dto.fullName, phone: dto.phone, roleId: dto.roleId, isActive: dto.isActive };
     if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, 10);
     Object.keys(data).forEach((k) => data[k] === undefined && delete data[k]);
 

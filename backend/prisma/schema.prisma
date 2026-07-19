@@ -26,6 +26,7 @@ model User {
   email        String     @unique
   passwordHash String
   fullName     String
+  phone        String? // shown as the salesperson contact on printed quotations
   roleId       String
   role         Role       @relation(fields: [roleId], references: [id])
   isActive     Boolean    @default(true)

@@ -5,6 +5,7 @@
  */
 import { PrismaClient, RateType, QuotationStatus, JobStatus } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { DEFAULT_COMPANY_PROFILE } from '../src/modules/settings/company.default';
 
 const prisma = new PrismaClient();
 
@@ -132,8 +133,8 @@ async function main() {
     'alerts.highCostAmount': 50000,
     'alerts.quotationExpiryDays': 7,
     'alerts.rateExpiryDays': 14,
-    'company.profile': { name: 'Logistics ERP Sdn. Bhd.', baseCurrency: 'MYR' },
-    'quotation.defaults': { markupPct: 20, taxPct: 8, validityDays: 30 },
+    'company.profile': DEFAULT_COMPANY_PROFILE,
+    'quotation.defaults': { markupPct: 20, taxPct: 6, validityDays: 30 },
   };
   for (const [key, value] of Object.entries(settings)) {
     await prisma.settingKV.upsert({ where: { key }, update: {}, create: { key, value: value as any } });

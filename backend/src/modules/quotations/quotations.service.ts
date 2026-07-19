@@ -144,7 +144,7 @@ export class QuotationsService {
       where: { id },
       include: {
         customer: true,
-        salesPerson: { select: { id: true, fullName: true } },
+        salesPerson: { select: { id: true, fullName: true, email: true, phone: true } },
         items: { orderBy: { sortOrder: 'asc' }, include: { service: { select: { name: true } }, vendor: { select: { name: true } } } },
         jobs: { select: { id: true, jobNumber: true, status: true } },
       },

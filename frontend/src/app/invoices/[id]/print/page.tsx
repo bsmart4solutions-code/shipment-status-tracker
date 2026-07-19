@@ -12,7 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Printer, ArrowLeft } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
-import { COMPANY, BANK_INFO, INVOICE_FOOTER } from '@/lib/company';
+import { useCompany, INVOICE_FOOTER } from '@/lib/company';
 import { amountInWords } from '@/lib/utils';
 
 interface PrintInvoice {
@@ -46,6 +46,8 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 
 export default function InvoicePrintPage({ params }: { params: { id: string } }) {
   const router = useRouter();
+  const COMPANY = useCompany();
+  const BANK_INFO = COMPANY.bank;
   const { data: inv } = useQuery({ queryKey: ['invoice', params.id], queryFn: () => api<PrintInvoice>(`/invoices/${params.id}`) });
 
   if (!inv) return <div className="p-10 text-center text-gray-400">Loading…</div>;
@@ -68,12 +70,16 @@ export default function InvoicePrintPage({ params }: { params: { id: string } })
 
         {/* ── Letterhead ── */}
         <div className="flex justify-between items-start border-b-2 border-black pb-2">
-          <div>
-            <div className="text-[15px] font-bold">{COMPANY.name}</div>
-            {COMPANY.addressLines.map((l) => <div key={l}>{l}</div>)}
-            <div>Tel : {COMPANY.tel}</div>
-            <div>Email : {COMPANY.email}</div>
-            <div>Co. No : {COMPANY.coNo}&nbsp;&nbsp;&nbsp;SST ID : {COMPANY.sstId}</div>
+          <div className="flex items-start gap-3">
+            {COMPANY.logoDataUrl && <img src={COMPANY.logoDataUrl} alt="" className="h-14 w-auto object-contain" />}
+            <div>
+              <div className="text-[15px] font-bold">{COMPANY.name}</div>
+              {COMPANY.addressLines.map((l) => <div key={l}>{l}</div>)}
+              <div>Tel : {COMPANY.tel}{COMPANY.fax ? `   Fax : ${COMPANY.fax}` : ''}</div>
+              <div>Email : {COMPANY.email}</div>
+              {COMPANY.website && <div>Web : {COMPANY.website}</div>}
+              <div>Co. No : {COMPANY.coNo}&nbsp;&nbsp;&nbsp;SST ID : {COMPANY.sstId}</div>
+            </div>
           </div>
           <div className="text-[20px] font-bold tracking-widest mt-1">INVOICE</div>
         </div>
@@ -194,7 +200,7 @@ export default function InvoicePrintPage({ params }: { params: { id: string } })
         {/* ── Footer conditions ── */}
         <div className="mt-4 text-[9px] leading-tight border-t border-gray-400 pt-2">
           <div>{INVOICE_FOOTER.tradingCondition}</div>
-          <div className="font-semibold mt-1">{INVOICE_FOOTER.chequeNote}</div>
+          <div className="font-semibold mt-1">ALL CHEQUE MUST BE CROSSED AND PAYABLE TO &quot;{BANK_INFO.payableTo || COMPANY.name}&quot;</div>
         </div>
       </div>
     </div>
