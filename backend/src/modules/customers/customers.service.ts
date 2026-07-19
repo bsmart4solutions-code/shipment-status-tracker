@@ -55,10 +55,37 @@ export class CustomersService {
     return paged(enriched, total, dto);
   }
 
+  // Date-string fields that must be parsed to Date before hitting Prisma.
+  private static readonly DATE_FIELDS = [
+    'openingBalanceDate', 'firstContactDate', 'customerSince', 'lastContactDate',
+    'lastSalesDate', 'nextFollowUp', 'birthday', 'companyAnniversary',
+  ] as const;
+
+  /**
+   * Split a DTO into the customer's scalar Prisma data (dates parsed) and the
+   * nested child arrays. Nested arrays are returned only when present so an
+   * omitted array on update means "leave those rows untouched".
+   */
+  private splitDto(dto: CreateCustomerDto | UpdateCustomerDto) {
+    const { contacts, addresses, documents, bankAccounts, ...rest } = dto as UpdateCustomerDto;
+    const scalar: Record<string, unknown> = { ...rest };
+    for (const f of CustomersService.DATE_FIELDS) {
+      if (scalar[f] !== undefined) scalar[f] = scalar[f] ? new Date(scalar[f] as string) : null;
+    }
+    return { scalar, contacts, addresses, documents, bankAccounts };
+  }
+
   async get(id: string) {
     const customer = await this.prisma.customer.findUnique({
       where: { id },
-      include: { ratings: { orderBy: { createdAt: 'desc' }, take: 10, include: { ratedBy: { select: { fullName: true } } } } },
+      include: {
+        ratings: { orderBy: { createdAt: 'desc' }, take: 10, include: { ratedBy: { select: { fullName: true } } } },
+        contacts: { orderBy: { sortOrder: 'asc' } },
+        addresses: { orderBy: { sortOrder: 'asc' } },
+        documents: { orderBy: { uploadedAt: 'desc' } },
+        bankAccounts: { orderBy: { sortOrder: 'asc' } },
+        assignedSalesperson: { select: { id: true, fullName: true } },
+      },
     });
     if (!customer) throw new NotFoundException('Customer not found');
     const fx = await this.fx.converter();
@@ -85,14 +112,51 @@ export class CustomersService {
     };
   }
 
-  async create(dto: CreateCustomerDto) {
+  async create(dto: CreateCustomerDto, userId?: string) {
     const code = await this.seq.next('customer');
-    return this.prisma.customer.create({ data: { ...dto, code } });
+    const { scalar, contacts, addresses, documents, bankAccounts } = this.splitDto(dto);
+    try {
+      return await this.prisma.customer.create({
+        data: {
+          ...(scalar as Prisma.CustomerUncheckedCreateInput),
+          code,
+          createdById: userId ?? null,
+          updatedById: userId ?? null,
+          contacts: contacts?.length ? { create: contacts.map((c, i) => ({ ...c, sortOrder: i })) } : undefined,
+          addresses: addresses?.length ? { create: addresses.map((a, i) => ({ ...a, sortOrder: i })) } : undefined,
+          documents: documents?.length ? { create: documents } : undefined,
+          bankAccounts: bankAccounts?.length ? { create: bankAccounts.map((b, i) => ({ ...b, sortOrder: i })) } : undefined,
+        },
+      });
+    } catch (e) {
+      rethrowPrisma(e, 'Customer');
+    }
   }
 
-  async update(id: string, dto: UpdateCustomerDto) {
+  async update(id: string, dto: UpdateCustomerDto, userId?: string) {
+    const { scalar, contacts, addresses, documents, bankAccounts } = this.splitDto(dto);
     try {
-      return await this.prisma.customer.update({ where: { id }, data: dto });
+      // Nested arrays, when supplied, fully replace the existing rows in one
+      // transaction (an omitted array leaves those rows as they are).
+      return await this.prisma.$transaction(async (tx) => {
+        if (contacts) {
+          await tx.customerContact.deleteMany({ where: { customerId: id } });
+          if (contacts.length) await tx.customerContact.createMany({ data: contacts.map((c, i) => ({ ...c, customerId: id, sortOrder: i })) });
+        }
+        if (addresses) {
+          await tx.customerAddress.deleteMany({ where: { customerId: id } });
+          if (addresses.length) await tx.customerAddress.createMany({ data: addresses.map((a, i) => ({ ...a, customerId: id, sortOrder: i })) });
+        }
+        if (documents) {
+          await tx.customerDocument.deleteMany({ where: { customerId: id } });
+          if (documents.length) await tx.customerDocument.createMany({ data: documents.map((d) => ({ ...d, customerId: id })) });
+        }
+        if (bankAccounts) {
+          await tx.customerBankAccount.deleteMany({ where: { customerId: id } });
+          if (bankAccounts.length) await tx.customerBankAccount.createMany({ data: bankAccounts.map((b, i) => ({ ...b, customerId: id, sortOrder: i })) });
+        }
+        return tx.customer.update({ where: { id }, data: { ...(scalar as Prisma.CustomerUncheckedUpdateInput), updatedById: userId ?? null } });
+      });
     } catch (e) {
       rethrowPrisma(e, 'Customer');
     }

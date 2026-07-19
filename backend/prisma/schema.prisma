@@ -45,6 +45,9 @@ model User {
   invoicePayments   InvoicePayment[]
   quotationRevisions QuotationRevision[]
   quotationApprovals Quotation[]       @relation("QuotationApprover")
+  customersAssigned  Customer[]        @relation("CustomerSalesperson")
+  customersCreated   Customer[]        @relation("CustomerCreatedBy")
+  customersUpdated   Customer[]        @relation("CustomerUpdatedBy")
 
   @@map("users")
 }
@@ -86,20 +89,96 @@ enum EntityStatus {
   INACTIVE
 }
 
+enum CustomerType {
+  COMPANY
+  INDIVIDUAL
+}
+
 model Customer {
   id           String       @id @default(uuid())
   code         String       @unique // auto: CUST-0001
   companyName  String
-  pic          String? // person in charge
-  phone        String?
+  // ── Primary contact (denormalized quick-reference; full list in contacts[]) ──
+  pic          String? // person in charge / primary contact name
+  phone        String? // primary office phone
   email        String?
-  address      String?
-  industry     String?
-  paymentTerm  String? // e.g. "NET 30"
-  creditLimit  Decimal?     @db.Decimal(14, 2)
-  status       EntityStatus @default(ACTIVE)
-  priority     Int          @default(3) // 1 highest .. 5 lowest
-  notes        String?
+  mobile       String?
+  officePhone  String?
+  extension    String?
+  whatsapp     String?
+  contactTitle String? // primary contact job title
+  preferredComm String? // EMAIL / PHONE / WHATSAPP / SMS
+  // ── Company information ──
+  address       String? // legacy single-line address (kept; full list in addresses[])
+  industry      String?
+  customerType  CustomerType @default(COMPANY)
+  registrationNo String? // business registration / SSM number
+  taxId         String? // GST / VAT / SST number
+  website       String?
+  customerCategory String? // e.g. Wholesale / Retail / Government
+  salesTerritory   String?
+  leadSource       String? // Referral / Website / Cold Call / Exhibition...
+  // ── Financial ──
+  paymentTerm     String? // e.g. "NET 30"
+  creditLimit     Decimal?     @db.Decimal(14, 2)
+  outstandingLimit Decimal?    @db.Decimal(14, 2)
+  currency        String?      @default("MYR")
+  priceLevel      String?
+  taxType         String? // SST / GST / EXEMPT / ZERO-RATED
+  taxExempt       Boolean      @default(false)
+  creditHold      Boolean      @default(false) // block new orders when true
+  openingBalance  Decimal?     @db.Decimal(14, 2)
+  openingBalanceDate DateTime?
+  // ── Sales & operations ──
+  assignedSalespersonId String?
+  assignedSalesperson   User?  @relation("CustomerSalesperson", fields: [assignedSalespersonId], references: [id], onDelete: SetNull)
+  salesTeam        String?
+  discountGroup    String?
+  defaultDiscountPct Decimal?   @db.Decimal(7, 4)
+  commissionGroup  String?
+  defaultWarehouse String?
+  preferredDeliveryMethod String?
+  preferredShippingCompany String?
+  // ── Accounting ──
+  arAccount           String?
+  customerAccountCode String?
+  taxCategory         String?
+  financeRemarks      String?
+  // ── Shipping ──
+  deliveryInstructions String?
+  receivingHours       String?
+  loadingBayNotes      String?
+  preferredCourier     String?
+  shippingNotes        String?
+  // ── CRM ──
+  status       EntityStatus @default(ACTIVE) // account status (kept)
+  priority     Int          @default(3) // 1 highest .. 5 lowest (kept)
+  leadStatus       String? // NEW / QUALIFIED / PROPOSAL / WON / LOST
+  firstContactDate DateTime?
+  customerSince    DateTime?
+  lastContactDate  DateTime?
+  lastSalesDate    DateTime?
+  nextFollowUp     DateTime?
+  birthday         DateTime? // for individuals
+  companyAnniversary DateTime?
+  // ── Preferences ──
+  preferredLanguage String?
+  timeZone          String?
+  receivePromotions      Boolean @default(true)
+  receiveStatementsByEmail Boolean @default(true)
+  receiveInvoiceByEmail    Boolean @default(true)
+  // ── Internal ──
+  notes            String? // general internal notes (kept)
+  creditNotesInternal String? // financial/credit remarks (distinct from AR credit notes)
+  collectionNotes  String?
+  customerWarnings String?
+  blacklist        Boolean @default(false)
+  vip              Boolean @default(false)
+  // ── System ──
+  createdById   String?
+  createdBy     User?     @relation("CustomerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById   String?
+  updatedBy     User?     @relation("CustomerUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   deletedAt    DateTime? // soft delete — non-null means in the recycle bin
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
@@ -108,10 +187,86 @@ model Customer {
   jobs       Job[]
   ratings    CustomerRating[]
   invoices   Invoice[]
+  contacts     CustomerContact[]
+  addresses    CustomerAddress[]
+  documents    CustomerDocument[]
+  bankAccounts CustomerBankAccount[]
 
   @@index([companyName])
   @@index([deletedAt])
+  @@index([assignedSalespersonId])
   @@map("customers")
+}
+
+model CustomerContact {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  name       String
+  position   String?
+  department String?
+  mobile     String?
+  phone      String?
+  email      String?
+  remarks    String?
+  sortOrder  Int      @default(0)
+
+  @@index([customerId])
+  @@map("customer_contacts")
+}
+
+enum AddressType {
+  REGISTERED
+  BILLING
+  SHIPPING
+  WAREHOUSE
+}
+
+model CustomerAddress {
+  id         String      @id @default(uuid())
+  customerId String
+  customer   Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  type       AddressType @default(BILLING)
+  line1      String?
+  line2      String?
+  city       String?
+  state      String?
+  postalCode String?
+  country    String?     @default("Malaysia")
+  isPrimary  Boolean     @default(false)
+  sortOrder  Int         @default(0)
+
+  @@index([customerId])
+  @@map("customer_addresses")
+}
+
+model CustomerDocument {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  name       String
+  category   String? // Business Registration / Tax Certificate / Credit Application / Agreement...
+  link       String? // external URL or storage reference
+  notes      String?
+  uploadedAt DateTime @default(now())
+
+  @@index([customerId])
+  @@map("customer_documents")
+}
+
+model CustomerBankAccount {
+  id          String   @id @default(uuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  bankName    String?
+  accountName String?
+  accountNumber String?
+  swift       String?
+  bankAddress String?
+  sortOrder   Int      @default(0)
+
+  @@index([customerId])
+  @@map("customer_bank_accounts")
 }
 
 model Vendor {

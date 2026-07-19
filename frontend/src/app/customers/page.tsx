@@ -11,25 +11,12 @@ import { ImportDialog } from '@/components/import-dialog';
 import { ErrorText, GpBadge, Modal, Pagination, StatusBadge, Table } from '@/components/ui';
 import { api, downloadCsv, hasPermission } from '@/lib/api';
 import { fmtDate, fmtMoney } from '@/lib/utils';
+import { CustomerModal } from './customer-form';
 
-const customerSchema = z.object({
-  companyName: z.string().min(1, 'Required'),
-  pic: z.string().optional(),
-  phone: z.string().optional(),
-  email: z.string().email().optional().or(z.literal('')),
-  address: z.string().optional(),
-  industry: z.string().optional(),
-  paymentTerm: z.string().optional(),
-  creditLimit: z.coerce.number().optional(),
-  status: z.enum(['ACTIVE', 'INACTIVE']).default('ACTIVE'),
-  priority: z.coerce.number().min(1).max(5).default(3),
-  notes: z.string().optional(),
-});
-type CustomerForm = z.infer<typeof customerSchema>;
-
-interface Customer extends CustomerForm {
-  id: string; code: string; totalRevenue: number; totalProfit: number;
-  lastQuotation: string | null; rating: number | null;
+interface Customer {
+  id: string; code: string; companyName: string; pic?: string | null; paymentTerm?: string | null;
+  priority?: number | null; status?: string | null; vip?: boolean; blacklist?: boolean;
+  totalRevenue: number; totalProfit: number; lastQuotation: string | null; rating: number | null;
 }
 
 const ratingSchema = z.object({
@@ -82,7 +69,11 @@ export default function CustomersPage() {
         {data?.items.map((c) => (
           <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
             <td className="td font-medium text-primary">{c.code}</td>
-            <td className="td font-medium">{c.companyName}</td>
+            <td className="td font-medium">
+              {c.companyName}
+              {c.vip && <span className="badge ml-1.5 bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">VIP</span>}
+              {c.blacklist && <span className="badge ml-1.5 bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300">Blacklist</span>}
+            </td>
             <td className="td text-gray-500">{c.pic || '-'}</td>
             <td className="td text-gray-500">{c.paymentTerm || '-'}</td>
             <td className="td">{'★'.repeat(6 - (c.priority ?? 3))}</td>
@@ -112,49 +103,6 @@ export default function CustomersPage() {
           onClose={() => setShowImport(false)} />
       )}
     </Shell>
-  );
-}
-
-function CustomerModal({ customer, onClose }: { customer: Customer | null; onClose: () => void }) {
-  const qc = useQueryClient();
-  const { register, handleSubmit, formState: { errors } } = useForm<CustomerForm>({
-    resolver: zodResolver(customerSchema),
-    defaultValues: customer ?? { status: 'ACTIVE', priority: 3 },
-  });
-  const save = useMutation({
-    mutationFn: (form: CustomerForm) =>
-      customer
-        ? api(`/customers/${customer.id}`, { method: 'PATCH', body: JSON.stringify(form) })
-        : api('/customers', { method: 'POST', body: JSON.stringify(form) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['customers'] }); onClose(); },
-  });
-
-  return (
-    <Modal title={customer ? `Edit ${customer.code}` : 'New Customer'} onClose={onClose}>
-      <form onSubmit={handleSubmit((f) => save.mutate(f))} className="space-y-3">
-        <div><label className="label">Company Name</label><input className="input" {...register('companyName')} />
-          {errors.companyName && <p className="text-xs text-red-500">{errors.companyName.message}</p>}</div>
-        <div className="grid grid-cols-2 gap-3">
-          <div><label className="label">Person In Charge</label><input className="input" {...register('pic')} /></div>
-          <div><label className="label">Industry</label><input className="input" {...register('industry')} /></div>
-          <div><label className="label">Phone</label><input className="input" {...register('phone')} /></div>
-          <div><label className="label">Email</label><input className="input" {...register('email')} /></div>
-        </div>
-        <div><label className="label">Address</label><input className="input" {...register('address')} /></div>
-        <div className="grid grid-cols-3 gap-3">
-          <div><label className="label">Payment Term</label><input className="input" placeholder="NET 30" {...register('paymentTerm')} /></div>
-          <div><label className="label">Credit Limit</label><input className="input" type="number" step="0.01" {...register('creditLimit')} /></div>
-          <div><label className="label">Priority (1 = top)</label><input className="input" type="number" min={1} max={5} {...register('priority')} /></div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div><label className="label">Status</label>
-            <select className="input" {...register('status')}><option>ACTIVE</option><option>INACTIVE</option></select></div>
-        </div>
-        <div><label className="label">Notes</label><textarea className="input" rows={2} {...register('notes')} /></div>
-        <ErrorText error={save.error} />
-        <button className="btn-primary w-full justify-center" disabled={save.isPending}>Save Customer</button>
-      </form>
-    </Modal>
   );
 }
 
