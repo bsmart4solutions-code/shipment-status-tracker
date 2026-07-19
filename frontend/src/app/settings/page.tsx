@@ -33,12 +33,53 @@ interface CompanyProfile {
   bank: { bank: string; branch: string; swift: string; accounts: { currency: string; number: string }[]; payableTo: string };
 }
 
+/**
+ * Downscale a logo image to a print-crisp size and return a compact data URL.
+ * The long edge is capped at LOGO_MAX_EDGE px (plenty for a letterhead at
+ * print DPI); PNG preserves transparency, but if the PNG is heavy (a photo
+ * rather than a flat logo) we fall back to JPEG so the stored string stays
+ * small. SVGs are kept as-is — they're already tiny and scale losslessly.
+ */
+const LOGO_MAX_EDGE = 512;
+function optimizeLogo(file: File): Promise<string> {
+  if (file.type === 'image/svg+xml') {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result as string);
+      r.onerror = () => reject(new Error('read failed'));
+      r.readAsDataURL(file);
+    });
+  }
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, LOGO_MAX_EDGE / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject(new Error('no canvas')); return; }
+      ctx.drawImage(img, 0, 0, w, h);
+      const png = canvas.toDataURL('image/png');
+      // Prefer PNG (crisp, transparent); switch to JPEG only if PNG is bulky.
+      const out = png.length > 200_000 ? canvas.toDataURL('image/jpeg', 0.85) : png;
+      resolve(out);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode failed')); };
+    img.src = url;
+  });
+}
+
 /** Company letterhead + bank details printed on quotations and invoices. */
 function CompanyProfileSection() {
   const qc = useQueryClient();
   const { data } = useQuery({ queryKey: ['company-profile'], queryFn: () => api<CompanyProfile>('/settings/company') });
   const [form, setForm] = useState<CompanyProfile | null>(null);
   const [logoError, setLogoError] = useState('');
+  const [logoBusy, setLogoBusy] = useState(false);
   const canWrite = hasPermission('settings.write');
 
   // Seed the form once the profile loads.
@@ -53,12 +94,27 @@ function CompanyProfileSection() {
   const set = (k: keyof CompanyProfile, v: unknown) => setForm((f) => (f ? { ...f, [k]: v } : f));
   const setBank = (k: string, v: unknown) => setForm((f) => (f ? { ...f, bank: { ...f.bank, [k]: v } } : f));
 
-  function onLogoFile(file: File) {
+  /**
+   * Accept a logo image of any practical size and auto-optimize it: the
+   * source is downscaled to a print-crisp resolution and re-encoded so the
+   * stored data URL stays small (a few KB–hundreds of KB). This keeps the
+   * profile row light — it travels inside every quotation/invoice print
+   * load — no matter how large the file the user picks. A 25 MB read cap
+   * only guards the browser from decoding an absurd file into memory.
+   */
+  async function onLogoFile(file: File) {
     setLogoError('');
-    if (file.size > 400_000) { setLogoError('Logo too large — please use an image under 400 KB.'); return; }
-    const reader = new FileReader();
-    reader.onload = () => set('logoDataUrl', reader.result as string);
-    reader.readAsDataURL(file);
+    if (!file.type.startsWith('image/')) { setLogoError('Please choose an image file (PNG, JPG, SVG…).'); return; }
+    if (file.size > 25_000_000) { setLogoError('That image is over 25 MB — please pick a smaller source file.'); return; }
+    setLogoBusy(true);
+    try {
+      const optimized = await optimizeLogo(file);
+      set('logoDataUrl', optimized);
+    } catch {
+      setLogoError('Could not read that image — try a different file (PNG or JPG).');
+    } finally {
+      setLogoBusy(false);
+    }
   }
 
   if (!model) return <Card><h3 className="font-semibold">Company Profile</h3><p className="text-sm text-gray-400 mt-2">Loading…</p></Card>;
@@ -79,10 +135,11 @@ function CompanyProfileSection() {
           </div>
           <div>
             <label className="label">Company Logo</label>
-            <input type="file" accept="image/*" disabled={!canWrite} onChange={(e) => e.target.files?.[0] && onLogoFile(e.target.files[0])} className="text-sm" />
-            {model.logoDataUrl && canWrite && <button className="text-red-500 text-xs hover:underline ml-2" onClick={() => set('logoDataUrl', null)}>Remove</button>}
+            <input type="file" accept="image/*" disabled={!canWrite || logoBusy} onChange={(e) => e.target.files?.[0] && onLogoFile(e.target.files[0])} className="text-sm" />
+            {model.logoDataUrl && canWrite && !logoBusy && <button className="text-red-500 text-xs hover:underline ml-2" onClick={() => set('logoDataUrl', null)}>Remove</button>}
+            {logoBusy && <p className="text-xs text-primary mt-1">Optimizing image…</p>}
             {logoError && <p className="text-xs text-red-500 mt-1">{logoError}</p>}
-            <p className="text-xs text-gray-400 mt-1">PNG/JPG, under 400 KB. Stored in the database (no external hosting).</p>
+            <p className="text-xs text-gray-400 mt-1">PNG, JPG or SVG — any size. Large images are automatically resized for print and stored in the database (no external hosting).</p>
           </div>
         </div>
 

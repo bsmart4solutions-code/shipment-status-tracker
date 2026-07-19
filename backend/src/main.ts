@@ -5,6 +5,7 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { validateEnv } from './config/env.validation';
 import { createAppLogger } from './common/logger/winston.logger';
 import helmet from 'helmet';
+import { json, urlencoded } from 'express';
 
 async function bootstrap() {
   const env = await validateEnv();
@@ -13,6 +14,12 @@ async function bootstrap() {
 
   // Security: Add security headers
   app.use(helmet());
+
+  // Body size: the default 100 KB is too small for the company profile PUT,
+  // which carries a base64 logo (auto-optimized client-side to well under a
+  // few hundred KB). 5 MB gives comfortable headroom without inviting abuse.
+  app.use(json({ limit: '5mb' }));
+  app.use(urlencoded({ extended: true, limit: '5mb' }));
 
   // Global exception filter
   app.useGlobalFilters(new AllExceptionsFilter());
