@@ -7,8 +7,18 @@ import { requestContext } from '../../common/request-context';
 import { SequenceService } from '../../common/sequence.service';
 import { PaginationDto, paged } from '../../common/dto/pagination.dto';
 import { assertInvoiceStatusTransition } from '../../common/state-machine';
-import { applyPayment, computeTotals, round2 as r2, OverpaymentError, NonPositivePaymentError } from './invoice.calc';
-import { CreateInvoiceDto, RecordPaymentDto, UpdateInvoiceDto } from './invoices.dto';
+import {
+  applyPayment, computeInvoiceTotals, computeTotals, priceInvoiceItem, round2 as r2,
+  OverpaymentError, NonPositivePaymentError,
+} from './invoice.calc';
+import { CreateInvoiceDto, InvoiceItemDto, RecordPaymentDto, UpdateInvoiceDto } from './invoices.dto';
+
+/** Header freight fields copied verbatim from a create/update DTO. */
+const HEADER_KEYS = [
+  'billToCode', 'attn', 'salesman', 'terms', 'pol', 'pod', 'finalDestination',
+  'feederVessel', 'motherVessel', 'hblNo', 'oblNo', 'goods', 'measurement',
+  'containerInfo', 'noOfPackages', 'shipper', 'consignee',
+] as const;
 
 @Injectable()
 export class InvoicesService {
@@ -54,6 +64,42 @@ export class InvoicesService {
     return computeTotals(subtotal, taxPct);
   }
 
+  /** Pick the freight-header fields off a DTO (dates parsed) for a Prisma write. */
+  private headerPatch(dto: CreateInvoiceDto | UpdateInvoiceDto) {
+    const patch: Record<string, unknown> = {};
+    for (const k of HEADER_KEYS) if (dto[k] !== undefined) patch[k] = dto[k];
+    if (dto.exRate !== undefined) patch.exRate = dto.exRate;
+    if (dto.etd !== undefined) patch.etd = dto.etd ? new Date(dto.etd) : null;
+    if (dto.eta !== undefined) patch.eta = dto.eta ? new Date(dto.eta) : null;
+    return patch;
+  }
+
+  /**
+   * Price line items into the invoice currency and derive totals. SVE-exempt
+   * lines are excluded from the tax base. Returns both the persist-ready rows
+   * and the header totals so create/update stay in sync.
+   */
+  private buildItems(items: InvoiceItemDto[], taxPct: number) {
+    const rows = items.map((it, i) => {
+      const priced = priceInvoiceItem({ unitPrice: it.unitPrice, quantity: it.quantity, fxRate: it.fxRate, taxExempt: it.taxExempt });
+      return {
+        description: it.description,
+        unitPrice: it.unitPrice,
+        unit: it.unit ?? null,
+        quantity: it.quantity,
+        lineCurrency: it.lineCurrency || 'MYR',
+        fxRate: it.fxRate ?? 1,
+        amount: priced.amount,
+        taxExempt: it.taxExempt ?? false,
+        accNo: it.accNo ?? null,
+        sortOrder: i + 1,
+        _priced: priced,
+      };
+    });
+    const totals = computeInvoiceTotals(rows.map((r) => r._priced), taxPct);
+    return { rows, totals };
+  }
+
   async list(dto: PaginationDto & { status?: string; customerId?: string; jobId?: string }) {
     const where: Prisma.InvoiceWhereInput = {};
     if (dto.search) {
@@ -84,6 +130,7 @@ export class InvoicesService {
       include: {
         customer: true,
         job: { select: { jobNumber: true, origin: true, destination: true } },
+        items: { orderBy: { sortOrder: 'asc' } },
         payments: { orderBy: { paidAt: 'desc' }, include: { recordedBy: { select: { fullName: true } } } },
       },
     });
@@ -94,20 +141,29 @@ export class InvoicesService {
   async create(dto: CreateInvoiceDto, userId?: string) {
     const invoiceNumber = await this.seq.next('invoice');
     const taxPct = dto.taxPct ?? 0;
-    const { taxAmt, totalAmount } = this.totals(dto.subtotal, taxPct);
+    // Item-based when line items are supplied; otherwise fall back to the
+    // manual subtotal (kept for simple/legacy invoices).
+    const hasItems = !!dto.items?.length;
+    const built = hasItems ? this.buildItems(dto.items!, taxPct) : null;
+    const subtotal = built ? built.totals.subtotal : (dto.subtotal ?? 0);
+    const { taxAmt, totalAmount } = built
+      ? { taxAmt: built.totals.taxAmt, totalAmount: built.totals.totalAmount }
+      : this.totals(subtotal, taxPct);
     const invoice = await this.prisma.invoice.create({
       data: {
         invoiceNumber,
         customerId: dto.customerId,
         jobId: dto.jobId,
         currency: dto.currency || 'MYR',
-        subtotal: dto.subtotal,
+        subtotal,
         taxPct,
         taxAmt,
         totalAmount,
         issueDate: dto.issueDate ? new Date(dto.issueDate) : new Date(),
         dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
         notes: dto.notes,
+        ...this.headerPatch(dto),
+        ...(built ? { items: { create: built.rows.map(({ _priced, ...r }) => r) } } : {}),
       },
     });
     await this.audit.log({ userId, action: 'CREATE', entityType: 'invoice', entityId: invoice.id, detail: { invoiceNumber } });
@@ -125,7 +181,17 @@ export class InvoicesService {
       where: { id: jobId, deletedAt: null },
       select: {
         id: true, jobNumber: true, customerId: true, currency: true, actualRevenue: true, status: true,
-        quotation: { select: { taxPct: true, taxAmt: true } },
+        origin: true, destination: true, etd: true, eta: true, trackingNumber: true,
+        quotation: {
+          select: {
+            taxPct: true, taxAmt: true, pol: true, pod: true, shipmentType: true, goods: true, paymentTerm: true,
+            salesPerson: { select: { fullName: true } },
+            items: {
+              orderBy: { sortOrder: 'asc' },
+              select: { description: true, service: { select: { name: true } }, unit: true, quantity: true, unitSell: true, totalSell: true, taxExempt: true },
+            },
+          },
+        },
       },
     });
     if (!job) throw new NotFoundException('Job not found');
@@ -139,15 +205,41 @@ export class InvoicesService {
     if (existing) {
       throw new ConflictException(`Job ${job.jobNumber} is already invoiced (${existing.invoiceNumber})`);
     }
-    // actualRevenue is net of SST. Carry the source quotation's ACTUAL tax
-    // amount rather than recomputing subtotal × taxPct — the quote's tax base
-    // excludes SST-exempt lines (ocean freight), so a flat percentage would
-    // overbill. Manually-created jobs (no quotation) stay untaxed here and
-    // the draft can be edited before issuing.
-    const subtotal = Number(job.actualRevenue);
-    const taxAmt = Number(job.quotation?.taxAmt ?? 0);
+
     const taxPct = Number(job.quotation?.taxPct ?? 0);
-    const totalAmount = subtotal + taxAmt;
+    const quoteItems = job.quotation?.items ?? [];
+    // Preferred path: itemise the invoice from the quotation's priced lines,
+    // preserving each line's SST-exempt flag so ocean freight prints as SVE
+    // 0%. Recompute totals from the items (never trust a stored aggregate).
+    let subtotal: number, taxAmt: number, totalAmount: number;
+    let itemCreate: object | undefined;
+    if (quoteItems.length) {
+      const rows = quoteItems.map((it, i) => {
+        const amount = Number(it.totalSell);
+        return {
+          description: it.description || it.service.name,
+          unitPrice: Number(it.unitSell),
+          unit: it.unit ?? null,
+          quantity: Number(it.quantity),
+          lineCurrency: job.currency,
+          fxRate: 1, // unitSell is already in the quotation/job currency
+          amount,
+          taxExempt: it.taxExempt,
+          accNo: null,
+          sortOrder: i + 1,
+        };
+      });
+      const totals = computeInvoiceTotals(rows.map((r) => ({ amount: r.amount, taxExempt: r.taxExempt })), taxPct);
+      subtotal = totals.subtotal; taxAmt = totals.taxAmt; totalAmount = totals.totalAmount;
+      itemCreate = { items: { create: rows } };
+    } else {
+      // Manually-created job (no quotation): fall back to the net-revenue
+      // aggregate, carrying the quote's actual tax amount if any.
+      subtotal = Number(job.actualRevenue);
+      taxAmt = Number(job.quotation?.taxAmt ?? 0);
+      totalAmount = subtotal + taxAmt;
+    }
+
     const invoiceNumber = await this.seq.next('invoice');
     const invoice = await this.prisma.invoice.create({
       data: {
@@ -159,6 +251,15 @@ export class InvoicesService {
         taxPct,
         taxAmt,
         totalAmount,
+        // Carry the freight header so the printed invoice needs no re-keying.
+        salesman: job.quotation?.salesPerson?.fullName ?? undefined,
+        terms: job.quotation?.paymentTerm ?? undefined,
+        pol: job.origin ?? job.quotation?.pol ?? undefined,
+        pod: job.destination ?? job.quotation?.pod ?? undefined,
+        goods: job.quotation?.goods ?? undefined,
+        etd: job.etd ?? undefined,
+        eta: job.eta ?? undefined,
+        ...(itemCreate ?? {}),
       },
     });
     await this.audit.log({ userId, action: 'CREATE', entityType: 'invoice', entityId: invoice.id, detail: { invoiceNumber, fromJob: job.jobNumber } });
@@ -172,23 +273,41 @@ export class InvoicesService {
     if (existing.status !== 'DRAFT') {
       throw new BadRequestException(`Cannot edit a ${existing.status} invoice`);
     }
-    const subtotal = dto.subtotal ?? Number(existing.subtotal);
     const taxPct = dto.taxPct ?? Number(existing.taxPct);
-    const { taxAmt, totalAmount } = this.totals(subtotal, taxPct);
-    const invoice = await this.prisma.invoice.update({
-      where: { id },
-      data: {
-        customerId: dto.customerId,
-        jobId: dto.jobId,
-        currency: dto.currency,
-        subtotal,
-        taxPct,
-        taxAmt,
-        totalAmount,
-        issueDate: dto.issueDate ? new Date(dto.issueDate) : undefined,
-        dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
-        notes: dto.notes,
-      },
+    // Only rebuild items when the caller sends an items array (an omitted
+    // array means "leave items as they are"). An explicit [] clears them and
+    // reverts to the manual subtotal.
+    const built = dto.items ? this.buildItems(dto.items, taxPct) : null;
+    const subtotal = built
+      ? built.totals.subtotal
+      : (dto.subtotal ?? Number(existing.subtotal));
+    const { taxAmt, totalAmount } = built
+      ? { taxAmt: built.totals.taxAmt, totalAmount: built.totals.totalAmount }
+      : this.totals(subtotal, taxPct);
+
+    const invoice = await this.prisma.$transaction(async (tx) => {
+      if (dto.items) {
+        await tx.invoiceItem.deleteMany({ where: { invoiceId: id } });
+        if (built!.rows.length) {
+          await tx.invoiceItem.createMany({ data: built!.rows.map(({ _priced, ...r }) => ({ ...r, invoiceId: id })) });
+        }
+      }
+      return tx.invoice.update({
+        where: { id },
+        data: {
+          customerId: dto.customerId,
+          jobId: dto.jobId,
+          currency: dto.currency,
+          subtotal,
+          taxPct,
+          taxAmt,
+          totalAmount,
+          issueDate: dto.issueDate ? new Date(dto.issueDate) : undefined,
+          dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
+          notes: dto.notes,
+          ...this.headerPatch(dto),
+        },
+      });
     });
     await this.audit.log({ userId, action: 'UPDATE', entityType: 'invoice', entityId: id });
     return invoice;

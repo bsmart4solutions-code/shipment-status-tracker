@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Clock, Mail, Plus } from 'lucide-react';
+import { Clock, Mail, Package, Plus, Printer, Receipt, Ship, Trash2, Users } from 'lucide-react';
 import { Shell } from '@/components/shell';
 import { ColumnPicker, useColumns } from '@/components/column-picker';
-import { ErrorText, Modal, Pagination, StatusBadge, Table } from '@/components/ui';
+import { Card, ErrorText, Modal, Pagination, SearchableSelect, StatusBadge, Table } from '@/components/ui';
 import { api, hasPermission } from '@/lib/api';
 import { fmtDate, fmtMoney } from '@/lib/utils';
 import { exportToXlsx } from '@/lib/xlsx-export';
@@ -23,6 +24,7 @@ interface InvoiceRow {
 
 export default function InvoicesPage() {
   const qc = useQueryClient();
+  const router = useRouter();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
@@ -96,6 +98,11 @@ export default function InvoicesPage() {
                   {canWrite && inv.status === 'DRAFT' && (
                     <button className="text-primary hover:underline text-sm" onClick={() => issue.mutate(inv.id)}>Issue</button>
                   )}
+                  {inv.status !== 'DRAFT' && (
+                    <button className="text-primary hover:underline text-sm inline-flex items-center gap-1" onClick={() => router.push(`/invoices/${inv.id}/print`)}>
+                      <Printer size={13} /> Print
+                    </button>
+                  )}
                   {canWrite && (inv.status === 'ISSUED' || inv.status === 'PARTIALLY_PAID') && (
                     <button className="text-primary hover:underline text-sm" onClick={() => setPaying(inv)}>Record Payment</button>
                   )}
@@ -126,24 +133,109 @@ export default function InvoicesPage() {
   );
 }
 
+const CURRENCIES = ['MYR', 'USD', 'SGD', 'EUR', 'CNY'];
+const UOM_OPTIONS = ['SHPT', 'CONT', 'SET', "20'GP", "40'HC", 'M3', 'KG', 'TON', 'TRIP', 'PKG', 'UNIT', 'DAY'];
+
+interface ItemRow {
+  description: string; unitPrice: number; unit: string; quantity: number;
+  lineCurrency: string; fxRate: number; taxExempt: boolean; accNo: string;
+}
+
+interface InvoiceDetail {
+  id: string; customerId: string; jobId: string | null; currency: string; taxPct: string;
+  dueDate: string | null; notes: string | null;
+  billToCode: string | null; attn: string | null; salesman: string | null; terms: string | null; exRate: string | null;
+  pol: string | null; pod: string | null; finalDestination: string | null; etd: string | null; eta: string | null;
+  feederVessel: string | null; motherVessel: string | null; hblNo: string | null; oblNo: string | null;
+  goods: string | null; measurement: string | null; containerInfo: string | null; noOfPackages: string | null;
+  shipper: string | null; consignee: string | null;
+  items: { description: string; unitPrice: string; unit: string | null; quantity: string; lineCurrency: string; fxRate: string; taxExempt: boolean; accNo: string | null }[];
+}
+
+function SectionHeader({ icon: Icon, title, action }: { icon: React.ElementType; title: string; action?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400"><Icon size={13} /> {title}</div>
+      {action}
+    </div>
+  );
+}
+
+const emptyItem = (ccy: string): ItemRow => ({ description: '', unitPrice: 0, unit: '', quantity: 1, lineCurrency: ccy, fxRate: 1, taxExempt: false, accNo: '' });
+
 function InvoiceModal({ invoice, onClose }: { invoice: InvoiceRow | null; onClose: () => void }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState({
-    customerId: invoice?.customerId ?? '',
-    jobId: invoice?.jobId ?? '',
-    currency: invoice?.currency ?? 'MYR',
-    subtotal: invoice ? Number(invoice.subtotal) : 0,
-    taxPct: invoice ? Number(invoice.taxPct) : 0,
-    dueDate: invoice?.dueDate?.slice(0, 10) ?? '',
-    notes: invoice?.notes ?? '',
+  // For an existing invoice, load the full detail (items + freight header).
+  const { data: detail } = useQuery({
+    queryKey: ['invoice-full', invoice?.id],
+    queryFn: () => api<InvoiceDetail>(`/invoices/${invoice!.id}`),
+    enabled: !!invoice,
   });
+
+  const [customerId, setCustomerId] = useState('');
+  const [jobId, setJobId] = useState('');
+  const [currency, setCurrency] = useState('MYR');
+  const [taxPct, setTaxPct] = useState(6);
+  const [dueDate, setDueDate] = useState('');
+  const [notes, setNotes] = useState('');
+  const [hdr, setHdr] = useState<Record<string, string>>({});
+  const [items, setItems] = useState<ItemRow[]>([emptyItem('MYR')]);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Seed state once the detail arrives (edit) — new invoices keep the defaults.
+  if (invoice && detail && !hydrated) {
+    setCustomerId(detail.customerId);
+    setJobId(detail.jobId ?? '');
+    setCurrency(detail.currency);
+    setTaxPct(Number(detail.taxPct));
+    setDueDate(detail.dueDate?.slice(0, 10) ?? '');
+    setNotes(detail.notes ?? '');
+    setHdr({
+      billToCode: detail.billToCode ?? '', attn: detail.attn ?? '', salesman: detail.salesman ?? '', terms: detail.terms ?? '',
+      pol: detail.pol ?? '', pod: detail.pod ?? '', finalDestination: detail.finalDestination ?? '',
+      etd: detail.etd?.slice(0, 10) ?? '', eta: detail.eta?.slice(0, 10) ?? '',
+      feederVessel: detail.feederVessel ?? '', motherVessel: detail.motherVessel ?? '', hblNo: detail.hblNo ?? '', oblNo: detail.oblNo ?? '',
+      goods: detail.goods ?? '', measurement: detail.measurement ?? '', containerInfo: detail.containerInfo ?? '',
+      noOfPackages: detail.noOfPackages ?? '', shipper: detail.shipper ?? '', consignee: detail.consignee ?? '',
+    });
+    setItems(detail.items.length
+      ? detail.items.map((i) => ({ description: i.description, unitPrice: Number(i.unitPrice), unit: i.unit ?? '', quantity: Number(i.quantity), lineCurrency: i.lineCurrency, fxRate: Number(i.fxRate), taxExempt: i.taxExempt, accNo: i.accNo ?? '' }))
+      : [emptyItem(detail.currency)]);
+    setHydrated(true);
+  }
 
   const { data: customers } = useQuery({ queryKey: ['customers-all'], queryFn: () => api<{ items: { id: string; companyName: string }[] }>('/customers?pageSize=200') });
   const { data: jobs } = useQuery({ queryKey: ['jobs-all'], queryFn: () => api<{ items: { id: string; jobNumber: string }[] }>('/jobs?pageSize=200') });
 
+  const setItem = (i: number, patch: Partial<ItemRow>) => setItems((prev) => prev.map((it, x) => (x === i ? { ...it, ...patch } : it)));
+  const setH = (k: string, v: string) => setHdr((h) => ({ ...h, [k]: v }));
+
+  // Live totals mirroring the backend (SVE lines excluded from tax base).
+  const totals = useMemo(() => {
+    let subtotal = 0, taxable = 0;
+    const lines = items.map((it) => {
+      const amount = it.quantity * it.unitPrice * (it.fxRate || 1);
+      subtotal += amount;
+      if (!it.taxExempt) taxable += amount;
+      return amount;
+    });
+    const taxAmt = taxable * (taxPct / 100);
+    return { lines, subtotal, taxAmt, total: subtotal + taxAmt };
+  }, [items, taxPct]);
+
+  const hasValidItem = items.some((i) => i.description.trim());
+
   const save = useMutation({
     mutationFn: () => {
-      const body = { ...form, jobId: form.jobId || undefined, dueDate: form.dueDate || undefined };
+      const body = {
+        customerId, jobId: jobId || undefined, currency, taxPct, dueDate: dueDate || undefined, notes: notes || undefined,
+        ...Object.fromEntries(Object.entries(hdr).filter(([, v]) => v !== '')),
+        exRate: hdr.exRate ? Number(hdr.exRate) : undefined,
+        items: items.filter((i) => i.description.trim()).map((i) => ({
+          description: i.description, unitPrice: i.unitPrice, unit: i.unit || undefined, quantity: i.quantity,
+          lineCurrency: i.lineCurrency, fxRate: i.fxRate, taxExempt: i.taxExempt, accNo: i.accNo || undefined,
+        })),
+      };
       return invoice
         ? api(`/invoices/${invoice.id}`, { method: 'PATCH', body: JSON.stringify(body) })
         : api('/invoices', { method: 'POST', body: JSON.stringify(body) });
@@ -151,41 +243,119 @@ function InvoiceModal({ invoice, onClose }: { invoice: InvoiceRow | null; onClos
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['invoices'] }); onClose(); },
   });
 
-  const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
-  const taxAmt = form.subtotal * (form.taxPct / 100);
-  const total = form.subtotal + taxAmt;
-
   return (
-    <Modal title={invoice ? `Edit ${invoice.invoiceNumber}` : 'New Invoice'} onClose={onClose}>
-      <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
-          <div><label className="label">Customer</label>
-            <select className="input" value={form.customerId} onChange={(e) => set('customerId', e.target.value)} required>
-              <option value="">— select —</option>
-              {customers?.items.map((c) => <option key={c.id} value={c.id}>{c.companyName}</option>)}
-            </select></div>
-          <div><label className="label">Linked Job (optional)</label>
-            <select className="input" value={form.jobId} onChange={(e) => set('jobId', e.target.value)}>
-              <option value="">— none —</option>
-              {jobs?.items.map((j) => <option key={j.id} value={j.id}>{j.jobNumber}</option>)}
-            </select></div>
+    <Modal title={invoice ? `Edit ${invoice.invoiceNumber}` : 'New Invoice'} onClose={onClose} size="xl">
+      <div className="space-y-5">
+        <div>
+          <SectionHeader icon={Users} title="Customer & Terms" />
+          <Card className="!p-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="col-span-2">
+                <label className="label">Customer <span className="text-red-500">*</span></label>
+                <SearchableSelect value={customerId} onChange={setCustomerId} placeholder="Search customer…"
+                  options={(customers?.items ?? []).map((c) => ({ value: c.id, label: c.companyName }))} />
+              </div>
+              <div>
+                <label className="label">Linked Job</label>
+                <SearchableSelect value={jobId} onChange={setJobId} placeholder="Search job…"
+                  options={(jobs?.items ?? []).map((j) => ({ value: j.id, label: j.jobNumber }))} />
+              </div>
+              <div><label className="label">Currency</label>
+                <select className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></div>
+              <div><label className="label">SST %</label><input className="input" type="number" step="0.01" min="0" value={taxPct} onChange={(e) => setTaxPct(Number(e.target.value))} /></div>
+              <div><label className="label">Terms</label><input className="input" placeholder="CASH" value={hdr.terms ?? ''} onChange={(e) => setH('terms', e.target.value)} /></div>
+              <div><label className="label">Salesman</label><input className="input" value={hdr.salesman ?? ''} onChange={(e) => setH('salesman', e.target.value)} /></div>
+              <div><label className="label">Due Date</label><input className="input" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></div>
+            </div>
+          </Card>
         </div>
-        <div className="grid grid-cols-3 gap-3">
-          <div><label className="label">Subtotal</label>
-            <input className="input" type="number" step="0.01" value={form.subtotal} onChange={(e) => set('subtotal', Number(e.target.value))} /></div>
-          <div><label className="label">Tax %</label>
-            <input className="input" type="number" step="0.01" value={form.taxPct} onChange={(e) => set('taxPct', Number(e.target.value))} /></div>
-          <div><label className="label">Total (auto)</label>
-            <div className="input !flex items-center font-medium">{fmtMoney(total, form.currency)}</div></div>
+
+        <details className="group">
+          <summary className="cursor-pointer list-none">
+            <SectionHeader icon={Ship} title="Shipment Details (optional — printed on invoice)" action={<span className="text-xs text-primary group-open:hidden">Show</span>} />
+          </summary>
+          <Card className="!p-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div><label className="label">Bill-To Code</label><input className="input" placeholder="300-M0070" value={hdr.billToCode ?? ''} onChange={(e) => setH('billToCode', e.target.value)} /></div>
+              <div><label className="label">Attn</label><input className="input" value={hdr.attn ?? ''} onChange={(e) => setH('attn', e.target.value)} /></div>
+              <div><label className="label">Ex. Rate</label><input className="input" type="number" step="0.0001" value={hdr.exRate ?? ''} onChange={(e) => setH('exRate', e.target.value)} /></div>
+              <div />
+              <div><label className="label">POL</label><input className="input" value={hdr.pol ?? ''} onChange={(e) => setH('pol', e.target.value)} /></div>
+              <div><label className="label">POD</label><input className="input" value={hdr.pod ?? ''} onChange={(e) => setH('pod', e.target.value)} /></div>
+              <div><label className="label">Final Destination</label><input className="input" value={hdr.finalDestination ?? ''} onChange={(e) => setH('finalDestination', e.target.value)} /></div>
+              <div />
+              <div><label className="label">ETD</label><input className="input" type="date" value={hdr.etd ?? ''} onChange={(e) => setH('etd', e.target.value)} /></div>
+              <div><label className="label">ETA</label><input className="input" type="date" value={hdr.eta ?? ''} onChange={(e) => setH('eta', e.target.value)} /></div>
+              <div><label className="label">Feeder Vessel</label><input className="input" value={hdr.feederVessel ?? ''} onChange={(e) => setH('feederVessel', e.target.value)} /></div>
+              <div><label className="label">Mother Vessel</label><input className="input" value={hdr.motherVessel ?? ''} onChange={(e) => setH('motherVessel', e.target.value)} /></div>
+              <div><label className="label">HBL No</label><input className="input" value={hdr.hblNo ?? ''} onChange={(e) => setH('hblNo', e.target.value)} /></div>
+              <div><label className="label">OBL No</label><input className="input" value={hdr.oblNo ?? ''} onChange={(e) => setH('oblNo', e.target.value)} /></div>
+              <div className="col-span-2"><label className="label">Goods</label><input className="input" value={hdr.goods ?? ''} onChange={(e) => setH('goods', e.target.value)} /></div>
+              <div><label className="label">Meas./Weight</label><input className="input" placeholder="632.4M3 / 61753KGS" value={hdr.measurement ?? ''} onChange={(e) => setH('measurement', e.target.value)} /></div>
+              <div><label className="label">Container Info</label><input className="input" placeholder="10 X 40'HC" value={hdr.containerInfo ?? ''} onChange={(e) => setH('containerInfo', e.target.value)} /></div>
+              <div><label className="label">No. of Packages</label><input className="input" placeholder="14986 CARTONS" value={hdr.noOfPackages ?? ''} onChange={(e) => setH('noOfPackages', e.target.value)} /></div>
+              <div><label className="label">Shipper</label><input className="input" value={hdr.shipper ?? ''} onChange={(e) => setH('shipper', e.target.value)} /></div>
+              <div><label className="label">Consignee</label><input className="input" value={hdr.consignee ?? ''} onChange={(e) => setH('consignee', e.target.value)} /></div>
+            </div>
+          </Card>
+        </details>
+
+        <div>
+          <SectionHeader icon={Package} title={`Charge Items (${items.length})`} action={
+            <button type="button" className="btn-ghost !py-1.5 !px-3 text-xs" onClick={() => setItems([...items, emptyItem(currency)])}><Plus size={13} /> Add Item</button>
+          } />
+          <div className="space-y-3">
+            {items.map((item, i) => (
+              <Card key={i} className="!p-0 overflow-visible">
+                <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200/60 dark:border-gray-800 rounded-t-xl">
+                  <span className="text-xs font-semibold text-gray-500">Item {i + 1}</span>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer" title="SST-exempt line (SVE 0%), e.g. ocean freight">
+                      <input type="checkbox" checked={item.taxExempt} onChange={(e) => setItem(i, { taxExempt: e.target.checked })} /> SST exempt (SVE 0%)
+                    </label>
+                    <button type="button" className="text-red-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed" disabled={items.length === 1}
+                      title={items.length === 1 ? 'At least one item is required' : 'Remove item'} onClick={() => setItems(items.filter((_, x) => x !== i))}><Trash2 size={14} /></button>
+                  </div>
+                </div>
+                <div className="p-3 space-y-3">
+                  <div><label className="label !text-xs">Description <span className="text-red-500">*</span></label>
+                    <input className="input" placeholder="e.g. OCEAN FREIGHT / THC / B/L FEE" value={item.description} onChange={(e) => setItem(i, { description: e.target.value })} /></div>
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-2 items-end">
+                    <div><label className="label !text-xs">Line Ccy</label>
+                      <select className="input" value={item.lineCurrency} onChange={(e) => setItem(i, { lineCurrency: e.target.value })}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></div>
+                    <div><label className="label !text-xs">Unit Price</label><input className="input text-right" type="number" step="0.0001" min="0" value={item.unitPrice} onChange={(e) => setItem(i, { unitPrice: Number(e.target.value) })} /></div>
+                    <div><label className="label !text-xs">UOM</label><input className="input" list="inv-uom" placeholder="SHPT" value={item.unit} onChange={(e) => setItem(i, { unit: e.target.value })} /></div>
+                    <div><label className="label !text-xs">Qty</label><input className="input text-right" type="number" step="0.01" min="0.01" value={item.quantity} onChange={(e) => setItem(i, { quantity: Number(e.target.value) })} /></div>
+                    <div><label className="label !text-xs">Ex. Rate</label><input className="input text-right" type="number" step="0.0001" min="0" value={item.fxRate} onChange={(e) => setItem(i, { fxRate: Number(e.target.value) })} /></div>
+                    <div><label className="label !text-xs">Acc No</label><input className="input" placeholder="500-004" value={item.accNo} onChange={(e) => setItem(i, { accNo: e.target.value })} /></div>
+                  </div>
+                  <div className="text-right text-xs text-gray-500">Amount (excl tax): <span className="font-semibold text-gray-800 dark:text-gray-200">{fmtMoney(totals.lines[i] ?? 0, currency)}</span></div>
+                </div>
+              </Card>
+            ))}
+          </div>
+          <datalist id="inv-uom">{UOM_OPTIONS.map((u) => <option key={u} value={u} />)}</datalist>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div><label className="label">Currency</label><input className="input" value={form.currency} onChange={(e) => set('currency', e.target.value)} /></div>
-          <div><label className="label">Due Date</label><input className="input" type="date" value={form.dueDate} onChange={(e) => set('dueDate', e.target.value)} /></div>
+
+        <div>
+          <SectionHeader icon={Receipt} title="Remark" />
+          <textarea className="input" rows={2} placeholder="Notes printed on the invoice…" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
-        <div><label className="label">Notes</label><textarea className="input" rows={2} value={form.notes} onChange={(e) => set('notes', e.target.value)} /></div>
+
+        <Card className="!bg-primary/5 dark:!bg-primary/10 !border-primary/20">
+          <div className="grid grid-cols-3 gap-4 text-sm">
+            <div><div className="text-xs text-gray-500">Subtotal (excl tax)</div><div className="font-semibold">{fmtMoney(totals.subtotal, currency)}</div></div>
+            <div><div className="text-xs text-gray-500">Service Tax</div><div className="font-semibold">{fmtMoney(totals.taxAmt, currency)}</div></div>
+            <div><div className="text-xs text-gray-500">Total (incl tax)</div><div className="text-lg font-bold text-primary">{fmtMoney(totals.total, currency)}</div></div>
+          </div>
+        </Card>
+
         <ErrorText error={save.error} />
-        <button className="btn-primary w-full justify-center" disabled={save.isPending}>Save Invoice</button>
-      </form>
+        {!hasValidItem && <p className="text-sm text-amber-600 dark:text-amber-400">Add at least one charge item with a description before saving.</p>}
+        <button className="btn-primary w-full justify-center" disabled={!customerId || !hasValidItem || save.isPending} onClick={() => save.mutate()}>
+          {save.isPending ? 'Saving…' : 'Save Invoice'}
+        </button>
+      </div>
     </Modal>
   );
 }

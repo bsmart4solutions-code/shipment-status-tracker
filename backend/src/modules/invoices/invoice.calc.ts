@@ -5,6 +5,7 @@
  */
 
 export const round2 = (n: number) => Math.round(n * 100) / 100;
+export const round4 = (n: number) => Math.round(n * 10000) / 10000;
 
 /**
  * Server-side totals. Tax and grand total are always derived here so a
@@ -14,6 +15,41 @@ export const round2 = (n: number) => Math.round(n * 100) / 100;
 export function computeTotals(subtotal: number, taxPct: number): { taxAmt: number; totalAmount: number } {
   const taxAmt = round2(subtotal * (taxPct / 100));
   return { taxAmt, totalAmount: round2(subtotal + taxAmt) };
+}
+
+export interface InvoiceItemInput {
+  unitPrice: number;
+  quantity: number;
+  fxRate?: number;      // lineCurrency -> invoice currency (default 1)
+  taxExempt?: boolean;  // SVE 0% line (e.g. ocean freight)
+}
+
+export interface PricedInvoiceItem {
+  amount: number;       // qty × unitPrice × fx, excl tax, in invoice currency
+  taxExempt: boolean;
+}
+
+/** Price one invoice line into the invoice currency (amount excl. tax). */
+export function priceInvoiceItem(item: InvoiceItemInput): PricedInvoiceItem {
+  const qty = Number(item.quantity) || 0;
+  const fx = Number(item.fxRate ?? 1) || 1;
+  const amount = round2(qty * (Number(item.unitPrice) || 0) * fx);
+  return { amount, taxExempt: item.taxExempt ?? false };
+}
+
+/**
+ * Roll priced lines up into invoice totals. SVE 0% (tax-exempt) lines —
+ * ocean freight per the standard T&C — are excluded from the tax base, so
+ * `taxAmt` is a single `taxPct` applied only to the taxable subtotal. With
+ * no exempt lines this equals subtotal × taxPct, identical to the flat path.
+ */
+export function computeInvoiceTotals(
+  lines: PricedInvoiceItem[], taxPct: number,
+): { subtotal: number; taxableSubtotal: number; taxAmt: number; totalAmount: number } {
+  const subtotal = round2(lines.reduce((s, l) => s + l.amount, 0));
+  const taxableSubtotal = round2(lines.reduce((s, l) => s + (l.taxExempt ? 0 : l.amount), 0));
+  const taxAmt = round2(taxableSubtotal * (taxPct / 100));
+  return { subtotal, taxableSubtotal, taxAmt, totalAmount: round2(subtotal + taxAmt) };
 }
 
 export interface PaymentOutcome {

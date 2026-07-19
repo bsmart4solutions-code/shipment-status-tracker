@@ -1,4 +1,7 @@
-import { applyPayment, computeTotals, NonPositivePaymentError, OverpaymentError } from './invoice.calc';
+import {
+  applyPayment, computeInvoiceTotals, computeTotals, NonPositivePaymentError, OverpaymentError,
+  priceInvoiceItem,
+} from './invoice.calc';
 
 describe('Invoice totals', () => {
   it('computes tax and grand total from subtotal + taxPct', () => {
@@ -17,6 +20,39 @@ describe('Invoice totals', () => {
   it('handles fractional tax percentages', () => {
     // 1000 × 8.25% = 82.50
     expect(computeTotals(1000, 8.25)).toEqual({ taxAmt: 82.5, totalAmount: 1082.5 });
+  });
+});
+
+describe('Invoice line items', () => {
+  it('prices a line into invoice currency via fx', () => {
+    // USD 745.18 × 10 × 3.95 → 29434.61 MYR
+    expect(priceInvoiceItem({ unitPrice: 745.18, quantity: 10, fxRate: 3.95 })).toEqual({
+      amount: 29434.61, taxExempt: false,
+    });
+  });
+
+  it('defaults fx to 1 and taxExempt to false', () => {
+    expect(priceInvoiceItem({ unitPrice: 100, quantity: 2 })).toEqual({ amount: 200, taxExempt: false });
+  });
+
+  it('excludes SVE lines (ocean freight) from the tax base', () => {
+    const lines = [
+      priceInvoiceItem({ unitPrice: 2050, quantity: 1, taxExempt: true }), // ocean freight
+      priceInvoiceItem({ unitPrice: 635, quantity: 1 }),                    // THC
+      priceInvoiceItem({ unitPrice: 250, quantity: 1 }),                    // B/L
+    ];
+    const t = computeInvoiceTotals(lines, 6);
+    expect(t.subtotal).toBe(2935);
+    expect(t.taxableSubtotal).toBe(885);
+    expect(t.taxAmt).toBe(53.1); // 6% of 885 only
+    expect(t.totalAmount).toBe(2988.1);
+  });
+
+  it('matches flat subtotal × taxPct when no line is exempt', () => {
+    const lines = [priceInvoiceItem({ unitPrice: 1000, quantity: 1 })];
+    const t = computeInvoiceTotals(lines, 6);
+    expect(t.taxAmt).toBe(60);
+    expect(t.totalAmount).toBe(1060);
   });
 });
 

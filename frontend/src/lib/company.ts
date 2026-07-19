@@ -14,6 +14,26 @@ export const COMPANY = {
   sstId: 'B10-1902-32000071',
 };
 
+/** Bank details printed on the tax invoice (per-currency accounts). */
+export const BANK_INFO = {
+  bank: 'HONG LEONG BANK BERHAD',
+  branch: 'BANDAR BOTANIC, SELANGOR',
+  swift: 'HLBBMYKL',
+  accounts: [
+    { currency: 'MYR', number: '23400xxxxxxx' },
+    { currency: 'USD', number: '23402000162' },
+  ],
+  payableTo: 'SOLID XPRESS (M) SDN. BHD.',
+};
+
+/** Standard note + FMFF condition printed at the foot of the tax invoice. */
+export const INVOICE_FOOTER = {
+  computerGeneratedNote: '*** This is a computer generated invoice, no signature is required. ***',
+  chequeNote: 'ALL CHEQUE MUST BE CROSSED AND PAYABLE TO "SOLID XPRESS (M) SDN. BHD."',
+  tradingCondition:
+    "Trading will be subjected to the current Federation of Malaysian Freight Forwarders' (FMFF) Standard Trading Conditions (STC) available in full text on request.",
+};
+
 /** Standard T&C printed at the foot of every quotation (FMFF terms). */
 export const QUOTATION_TERMS = [
   'All business undertake is subject to standard trading conditions of the Federation of Malaysian Freight Forwarders, copy available upon request.',

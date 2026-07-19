@@ -432,16 +432,59 @@ model Invoice {
   issueDate     DateTime      @default(now())
   dueDate       DateTime?
   notes         String?
+  // Freight header printed on the tax invoice (Solid Xpress format). All
+  // optional free text; ports/vessel/BL etc. are copied from the job/quote
+  // on generation and stay editable while the invoice is DRAFT.
+  billToCode      String? // customer AR code, e.g. "300-M0070"
+  attn            String?
+  salesman        String?
+  terms           String? // payment terms, e.g. "CASH" / "NET 30"
+  exRate          Decimal? @db.Decimal(14, 4) // display ex-rate on the invoice header
+  pol             String?
+  pod             String?
+  finalDestination String?
+  etd             DateTime?
+  eta             DateTime?
+  feederVessel    String? // F.VESSEL
+  motherVessel    String? // M.VESSEL
+  hblNo           String?
+  oblNo           String?
+  goods           String? // DESC. OF GOODS
+  measurement     String? // MEAS./WEIGHT, e.g. "632.4000M3 / 61753.65KGS"
+  containerInfo   String? // e.g. "10 X 40'HC"
+  noOfPackages    String? // e.g. "14986 CARTONS"
+  shipper         String?
+  consignee       String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
   payments InvoicePayment[]
+  items    InvoiceItem[]
 
   @@index([customerId])
   @@index([status])
   @@index([dueDate])
   @@index([jobId])
   @@map("invoices")
+}
+
+model InvoiceItem {
+  id           String   @id @default(uuid())
+  invoiceId    String
+  invoice      Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description  String
+  unitPrice    Decimal  @default(0) @db.Decimal(14, 4) // in lineCurrency
+  unit         String? // UOM: 40'HC / SHPT / CONT / M3...
+  quantity     Decimal  @default(1) @db.Decimal(14, 4)
+  lineCurrency String   @default("MYR") // the unit price currency shown on the row
+  fxRate       Decimal  @default(1) @db.Decimal(14, 6) // lineCurrency -> invoice currency
+  amount       Decimal  @default(0) @db.Decimal(14, 2) // qty × unitPrice × fx, excl tax, in invoice currency
+  taxExempt    Boolean  @default(false) // SVE 0% (e.g. ocean freight) vs SV
+  accNo        String? // freight account code, e.g. "500-004" / "030"
+  sortOrder    Int      @default(0)
+
+  @@index([invoiceId])
+  @@map("invoice_items")
 }
 
 model InvoicePayment {
