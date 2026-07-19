@@ -11,22 +11,12 @@ import { ErrorText, GpBadge, Modal, Pagination, StatusBadge, Table } from '@/com
 import { ImportDialog } from '@/components/import-dialog';
 import { api, downloadCsv, hasPermission } from '@/lib/api';
 import { fmtMoney } from '@/lib/utils';
+import { VendorModal } from './vendor-form';
 
-const vendorSchema = z.object({
-  name: z.string().min(1, 'Required'),
-  contactPerson: z.string().optional(),
-  phone: z.string().optional(),
-  email: z.string().email().optional().or(z.literal('')),
-  address: z.string().optional(),
-  paymentTerm: z.string().optional(),
-  status: z.enum(['ACTIVE', 'INACTIVE']).default('ACTIVE'),
-  isPreferred: z.boolean().default(false),
-  notes: z.string().optional(),
-});
-type VendorForm = z.infer<typeof vendorSchema>;
-
-interface Vendor extends VendorForm {
-  id: string; code: string; rating: number | null;
+interface Vendor {
+  id: string; code: string; name: string; contactPerson?: string | null; phone?: string | null;
+  email?: string | null; paymentTerm?: string | null; status?: string | null;
+  isPreferred?: boolean; blacklist?: boolean; vendorType?: string | null; rating: number | null;
   _count?: { rates: number; jobs: number };
 }
 
@@ -80,7 +70,10 @@ export default function VendorsPage() {
         {data?.items.map((v) => (
           <tr key={v.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
             <td className="td font-medium text-primary">{v.code}</td>
-            <td className="td font-medium">{v.name}</td>
+            <td className="td font-medium">
+              {v.name}
+              {v.blacklist && <span className="badge ml-1.5 bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300">Blacklist</span>}
+            </td>
             <td className="td text-gray-500">{v.contactPerson || '-'}<br /><span className="text-xs">{v.phone}</span></td>
             <td className="td text-gray-500">{v.paymentTerm || '-'}</td>
             <td className="td">{v.isPreferred ? <span className="badge bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">★ Preferred</span> : '-'}</td>
@@ -109,44 +102,6 @@ export default function VendorsPage() {
           onClose={() => setShowImport(false)} />
       )}
     </Shell>
-  );
-}
-
-function VendorModal({ vendor, onClose }: { vendor: Vendor | null; onClose: () => void }) {
-  const qc = useQueryClient();
-  const { register, handleSubmit, formState: { errors } } = useForm<VendorForm>({
-    resolver: zodResolver(vendorSchema),
-    defaultValues: vendor ?? { status: 'ACTIVE', isPreferred: false },
-  });
-  const save = useMutation({
-    mutationFn: (form: VendorForm) =>
-      vendor
-        ? api(`/vendors/${vendor.id}`, { method: 'PATCH', body: JSON.stringify(form) })
-        : api('/vendors', { method: 'POST', body: JSON.stringify(form) }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['vendors'] }); onClose(); },
-  });
-  return (
-    <Modal title={vendor ? `Edit ${vendor.code}` : 'New Vendor'} onClose={onClose}>
-      <form onSubmit={handleSubmit((f) => save.mutate(f))} className="space-y-3">
-        <div><label className="label">Vendor Name</label><input className="input" {...register('name')} />
-          {errors.name && <p className="text-xs text-red-500">{errors.name.message}</p>}</div>
-        <div className="grid grid-cols-2 gap-3">
-          <div><label className="label">Contact Person</label><input className="input" {...register('contactPerson')} /></div>
-          <div><label className="label">Phone</label><input className="input" {...register('phone')} /></div>
-          <div><label className="label">Email</label><input className="input" {...register('email')} /></div>
-          <div><label className="label">Payment Term</label><input className="input" placeholder="NET 30" {...register('paymentTerm')} /></div>
-        </div>
-        <div><label className="label">Address</label><input className="input" {...register('address')} /></div>
-        <div className="grid grid-cols-2 gap-3 items-end">
-          <div><label className="label">Status</label>
-            <select className="input" {...register('status')}><option>ACTIVE</option><option>INACTIVE</option></select></div>
-          <label className="flex items-center gap-2 text-sm pb-2"><input type="checkbox" {...register('isPreferred')} /> Preferred Vendor</label>
-        </div>
-        <div><label className="label">Notes</label><textarea className="input" rows={2} {...register('notes')} /></div>
-        <ErrorText error={save.error} />
-        <button className="btn-primary w-full justify-center" disabled={save.isPending}>Save Vendor</button>
-      </form>
-    </Modal>
   );
 }
 

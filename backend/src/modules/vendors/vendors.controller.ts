@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { RequirePermission } from '../../common/decorators/permissions.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -21,10 +22,10 @@ export class VendorsController {
   get(@Param('id') id: string) { return this.vendors.get(id); }
 
   @Post() @RequirePermission('vendors.write')
-  create(@Body() dto: CreateVendorDto) { return this.vendors.create(dto); }
+  create(@Body() dto: CreateVendorDto, @CurrentUser() user: { id: string }) { return this.vendors.create(dto, user.id); }
 
   @Patch(':id') @RequirePermission('vendors.write')
-  update(@Param('id') id: string, @Body() dto: UpdateVendorDto) { return this.vendors.update(id, dto); }
+  update(@Param('id') id: string, @Body() dto: UpdateVendorDto, @CurrentUser() user: { id: string }) { return this.vendors.update(id, dto, user.id); }
 
   @Delete(':id') @RequirePermission('vendors.write')
   remove(@Param('id') id: string) { return this.vendors.remove(id); }

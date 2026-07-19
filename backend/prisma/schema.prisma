@@ -48,6 +48,9 @@ model User {
   customersAssigned  Customer[]        @relation("CustomerSalesperson")
   customersCreated   Customer[]        @relation("CustomerCreatedBy")
   customersUpdated   Customer[]        @relation("CustomerUpdatedBy")
+  vendorsAssigned    Vendor[]          @relation("VendorBuyer")
+  vendorsCreated     Vendor[]          @relation("VendorCreatedBy")
+  vendorsUpdated     Vendor[]          @relation("VendorUpdatedBy")
 
   @@map("users")
 }
@@ -269,18 +272,78 @@ model CustomerBankAccount {
   @@map("customer_bank_accounts")
 }
 
+enum VendorType {
+  SHIPPING_LINE
+  HAULIER
+  FORWARDING_AGENT
+  CUSTOMS_BROKER
+  WAREHOUSE
+  COURIER
+  AIRLINE
+  SUPPLIER
+  OTHER
+}
+
 model Vendor {
   id            String       @id @default(uuid())
   code          String       @unique // auto: VEN-0001
   name          String
+  // ── Primary contact (denormalized; full list in contacts[]) ──
   contactPerson String?
+  contactTitle  String?
   phone         String?
   email         String?
-  address       String?
-  paymentTerm   String?
+  mobile        String?
+  officePhone   String?
+  extension     String?
+  whatsapp      String?
+  preferredComm String? // EMAIL / PHONE / WHATSAPP / SMS
+  // ── Company information ──
+  address       String? // legacy single-line address (kept; full list in addresses[])
+  vendorType    VendorType   @default(SUPPLIER)
+  registrationNo String?
+  taxId         String? // GST / VAT / SST number
+  website       String?
+  category      String? // free-text grouping
+  servicesProvided String? // e.g. "Sea freight, haulage, customs"
+  // ── Financial ──
+  paymentTerm   String? // our payment terms with this vendor
+  currency      String?      @default("MYR")
+  creditLimit   Decimal?     @db.Decimal(14, 2) // credit they extend to us
+  taxType       String?
+  taxExempt     Boolean      @default(false)
+  openingBalance Decimal?    @db.Decimal(14, 2)
+  openingBalanceDate DateTime?
+  // ── Procurement & operations ──
+  assignedBuyerId String?
+  assignedBuyer   User?      @relation("VendorBuyer", fields: [assignedBuyerId], references: [id], onDelete: SetNull)
+  preferredMode   String? // Sea / Air / Land / Courier
+  leadTimeDays    Int?
+  deliveryTerms   String? // Incoterm or SLA
+  minOrderValue   Decimal?   @db.Decimal(14, 2)
+  // ── Accounting ──
+  apAccount         String? // accounts-payable control account
+  vendorAccountCode String?
+  taxCategory       String?
+  financeRemarks    String?
+  // ── Compliance & lifecycle ──
   status        EntityStatus @default(ACTIVE)
   isPreferred   Boolean      @default(false)
+  onboardedDate  DateTime?
+  contractStart  DateTime?
+  contractEnd    DateTime?
+  insuranceExpiry DateTime?
+  licenseNo      String?
+  nextReviewDate DateTime?
+  // ── Internal ──
   notes         String?
+  warnings      String?
+  blacklist     Boolean      @default(false)
+  // ── System ──
+  createdById   String?
+  createdBy     User?     @relation("VendorCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById   String?
+  updatedBy     User?     @relation("VendorUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   deletedAt     DateTime? // soft delete — non-null means in the recycle bin
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
@@ -289,10 +352,79 @@ model Vendor {
   ratings        VendorRating[]
   quotationItems QuotationItem[]
   jobs           Job[]
+  contacts     VendorContact[]
+  addresses    VendorAddress[]
+  documents    VendorDocument[]
+  bankAccounts VendorBankAccount[]
 
   @@index([name])
   @@index([deletedAt])
+  @@index([assignedBuyerId])
   @@map("vendors")
+}
+
+model VendorContact {
+  id        String  @id @default(uuid())
+  vendorId  String
+  vendor    Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  name      String
+  position  String?
+  department String?
+  mobile    String?
+  phone     String?
+  email     String?
+  remarks   String?
+  sortOrder Int     @default(0)
+
+  @@index([vendorId])
+  @@map("vendor_contacts")
+}
+
+model VendorAddress {
+  id         String      @id @default(uuid())
+  vendorId   String
+  vendor     Vendor      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  type       AddressType @default(BILLING)
+  line1      String?
+  line2      String?
+  city       String?
+  state      String?
+  postalCode String?
+  country    String?     @default("Malaysia")
+  isPrimary  Boolean     @default(false)
+  sortOrder  Int         @default(0)
+
+  @@index([vendorId])
+  @@map("vendor_addresses")
+}
+
+model VendorDocument {
+  id         String   @id @default(uuid())
+  vendorId   String
+  vendor     Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  name       String
+  category   String?
+  link       String?
+  notes      String?
+  uploadedAt DateTime @default(now())
+
+  @@index([vendorId])
+  @@map("vendor_documents")
+}
+
+model VendorBankAccount {
+  id          String  @id @default(uuid())
+  vendorId    String
+  vendor      Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  bankName    String?
+  accountName String?
+  accountNumber String?
+  swift       String?
+  bankAddress String?
+  sortOrder   Int     @default(0)
+
+  @@index([vendorId])
+  @@map("vendor_bank_accounts")
 }
 
 model Service {
