@@ -56,7 +56,7 @@ export class DocumentsService {
   async getForDownload(id: string) {
     const doc = await this.prisma.jobDocument.findUnique({ where: { id } });
     if (!doc || !doc.storedPath) throw new NotFoundException('Document not found');
-    const stream = this.storage.stream(doc.storedPath);
+    const stream = await this.storage.stream(doc.storedPath);
     if (!stream) throw new NotFoundException('File missing from storage');
     return { doc, stream };
   }
@@ -73,22 +73,29 @@ export class DocumentsService {
     if (doc.mimeType !== 'application/pdf') {
       throw new BadRequestException('Extraction is only supported for PDF documents');
     }
-    const full = this.storage.resolvePath(doc.storedPath);
-    if (!full) throw new NotFoundException('File missing from storage');
+    // pdf-parse and the OCR renderer need a real filesystem path; on the S3
+    // driver this is a temp download that dispose() cleans up.
+    const local = await this.storage.materialize(doc.storedPath);
+    if (!local) throw new NotFoundException('File missing from storage');
 
-    const text = await this.pdfText(full);
-    let result = extractFromText(text);
+    let result: ExtractionResult;
     let ocrUsed = false;
+    try {
+      const text = await this.pdfText(local.path);
+      result = extractFromText(text);
 
-    if (result.needsOcr) {
-      const image = await this.ocr.renderFirstPage(full);
-      const recognised = image ? await this.ocr.recognize(image) : null;
-      if (recognised) {
-        ocrUsed = true;
-        result = extractFromText(recognised.text);
-        // If even the OCR text was unusable, keep the needsOcr flag honest —
-        // it now means "OCR ran and still couldn't read this document".
+      if (result.needsOcr) {
+        const image = await this.ocr.renderFirstPage(local.path);
+        const recognised = image ? await this.ocr.recognize(image) : null;
+        if (recognised) {
+          ocrUsed = true;
+          result = extractFromText(recognised.text);
+          // If even the OCR text was unusable, keep the needsOcr flag honest —
+          // it now means "OCR ran and still couldn't read this document".
+        }
       }
+    } finally {
+      await local.dispose();
     }
 
     const stored = { ...result, ocrUsed };

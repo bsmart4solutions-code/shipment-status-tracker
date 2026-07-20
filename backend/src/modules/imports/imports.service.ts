@@ -3,6 +3,7 @@ import { AuditService } from '../../common/audit.service';
 import { parseCsv } from '../../common/csv-parse.util';
 import { PrismaService } from '../../common/prisma.service';
 import { SequenceService } from '../../common/sequence.service';
+import { detectCurrency, extractRates, ParsedRate, RATE_SHEET_LIMITS } from './rate-sheet.parser';
 
 export interface ImportRowResult {
   row: number;
@@ -183,6 +184,66 @@ export class ImportsService {
     if (rows.length > 5000) throw new BadRequestException('CSV exceeds 5000 rows — split the file');
     return rows;
   }
+
+  /**
+   * Parse an uploaded carrier rate workbook server-side (Sprint 02, P0-6 —
+   * untrusted spreadsheets never touch the browser's parser). Returns the
+   * preview rows the client shows before committing via importRates().
+   */
+  async parseRateSheet(file: Express.Multer.File, userId?: string): Promise<{ rows: ParsedRate[]; warnings: string[]; currency?: string }> {
+    if (!file || !file.buffer?.length) throw new BadRequestException('No file uploaded');
+    const name = (file.originalname || '').toLowerCase();
+    if (!name.endsWith('.xlsx')) {
+      throw new BadRequestException('Only .xlsx workbooks are supported — re-save .xls files as .xlsx first');
+    }
+
+    // exceljs is heavy; load it only when a parse actually runs.
+    const ExcelJS = await import('exceljs');
+    const wb = new ExcelJS.Workbook();
+    try {
+      await wb.xlsx.load(file.buffer as unknown as ArrayBuffer);
+    } catch {
+      throw new BadRequestException('Could not read this file as an Excel workbook');
+    }
+    const ws = wb.worksheets[0];
+    if (!ws) throw new BadRequestException('The workbook has no sheets');
+    if (ws.rowCount > RATE_SHEET_LIMITS.maxRows) {
+      throw new BadRequestException(`Sheet exceeds ${RATE_SHEET_LIMITS.maxRows} rows — split the file`);
+    }
+
+    const warnings: string[] = [];
+    if (ws.columnCount > RATE_SHEET_LIMITS.maxCols) {
+      warnings.push(`Only the first ${RATE_SHEET_LIMITS.maxCols} columns were read`);
+    }
+
+    // Flatten to the same 2D grid shape the extraction logic has always used.
+    const grid: unknown[][] = [];
+    ws.eachRow({ includeEmpty: false }, (row) => {
+      const raw = row.values as unknown[]; // exceljs row.values is 1-based
+      grid.push(raw.slice(1, RATE_SHEET_LIMITS.maxCols + 1).map(cellValue));
+    });
+
+    const rows = extractRates(grid);
+    if (rows.length === 0) {
+      warnings.push('Could not find a POL/POD rate table in this sheet. Check the first tab has a header row with POL and POD columns.');
+    }
+    await this.audit.log({ userId, action: 'PARSE', entityType: 'rate', detail: { file: file.originalname, rows: rows.length } });
+    return { rows, warnings, currency: detectCurrency(grid) };
+  }
+}
+
+/** Normalize an exceljs cell value to the primitive the grid logic expects. */
+function cellValue(v: unknown): unknown {
+  if (v == null) return '';
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === 'object') {
+    const o = v as { result?: unknown; richText?: { text: string }[]; text?: unknown; hyperlink?: unknown };
+    if (o.richText) return o.richText.map((r) => r.text).join('');
+    if ('result' in o) return cellValue(o.result); // formula cell -> cached result
+    if ('text' in o) return cellValue(o.text); // hyperlink cell
+    return '';
+  }
+  return v;
 }
 
 export interface RateImportRow {

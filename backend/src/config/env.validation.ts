@@ -1,5 +1,5 @@
 import { plainToInstance } from 'class-transformer';
-import { IsEnum, IsNotEmpty, IsNumber, IsString, IsOptional, validate } from 'class-validator';
+import { IsEnum, IsIn, IsNotEmpty, IsNumber, IsString, IsOptional, validate } from 'class-validator';
 
 export enum Environment {
   Development = 'development',
@@ -40,6 +40,35 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   UPLOAD_DIR: string = './uploads';
+
+  // Binary storage backend. "local" (default) writes to UPLOAD_DIR; "s3"
+  // targets any S3-compatible store (Cloudflare R2 in production) and then
+  // requires the four S3_* variables below.
+  @IsIn(['local', 's3'])
+  @IsOptional()
+  STORAGE_DRIVER: string = 'local';
+
+  // e.g. https://<account-id>.r2.cloudflarestorage.com
+  @IsString()
+  @IsOptional()
+  S3_ENDPOINT?: string;
+
+  @IsString()
+  @IsOptional()
+  S3_BUCKET?: string;
+
+  @IsString()
+  @IsOptional()
+  S3_ACCESS_KEY_ID?: string;
+
+  @IsString()
+  @IsOptional()
+  S3_SECRET_ACCESS_KEY?: string;
+
+  // R2 expects "auto" (the default); AWS S3 wants a real region.
+  @IsString()
+  @IsOptional()
+  S3_REGION?: string;
 
   @IsString()
   @IsOptional()

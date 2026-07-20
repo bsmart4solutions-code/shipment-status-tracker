@@ -76,3 +76,13 @@ npx prisma migrate dev --name describe_your_change
 - The API is stateless — run multiple replicas behind a load balancer; sequences use row-level locks so auto-numbering stays unique.
 - Heavy report queries can move to a read replica by pointing a second `DATABASE_URL` at it (introduce a `PrismaReadService`).
 - The Next.js app is a standalone Node server; static assets can be pushed to a CDN.
+
+## 6. Document storage (Sprint 02)
+
+Uploaded binaries go through a pluggable storage driver — see `STORAGE.md` for
+the full design. In production set `STORAGE_DRIVER=s3` plus `S3_ENDPOINT`,
+`S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` (Cloudflare R2 values;
+`STORAGE.md` §3 has the step-by-step). Without them the app falls back to the
+local driver — on Render's ephemeral disk that means uploads are lost on every
+deploy, so treat the R2 variables as required in production. To move existing
+local files into the bucket run `npx ts-node scripts/migrate-uploads-to-s3.ts --apply`.

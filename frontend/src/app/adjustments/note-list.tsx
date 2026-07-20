@@ -83,13 +83,27 @@ export function NoteListPage({ type }: { type: 'CREDIT' | 'DEBIT' }) {
               <td className="td">
                 <div className="flex gap-2 flex-wrap justify-end">
                   {canWrite && n.status === 'DRAFT' && <button className="text-primary hover:underline text-sm" onClick={() => setEditing(n)}>Edit</button>}
-                  {canWrite && n.status === 'DRAFT' && <button className="text-primary hover:underline text-sm" onClick={() => issue.mutate(n.id)}>Issue</button>}
+                  {canWrite && n.status === 'DRAFT' && (
+                    <button className="text-primary hover:underline text-sm"
+                      onClick={() => { if (confirm(`Issue ${n.noteNumber} for ${fmtMoney(n.totalAmount, n.currency)}? This posts the ${singular.toLowerCase()} to the customer's account and locks it.`)) issue.mutate(n.id); }}>
+                      Issue
+                    </button>
+                  )}
                   {n.status !== 'DRAFT' && (
                     <button className="text-primary hover:underline text-sm inline-flex items-center gap-1" onClick={() => router.push(`${printBase}/${n.id}/print`)}>
                       <Printer size={13} /> Print
                     </button>
                   )}
-                  {canWrite && n.status !== 'CANCELLED' && <button className="text-red-500 hover:underline text-sm" onClick={() => cancel.mutate(n.id)}>Cancel</button>}
+                  {canWrite && n.status !== 'CANCELLED' && (
+                    <button className="text-red-500 hover:underline text-sm"
+                      onClick={() => {
+                        // Voiding an ISSUED note reverses its AR effect — confirm it.
+                        if (n.status === 'ISSUED' && !confirm(`Cancel ${n.noteNumber}? This voids an issued ${singular.toLowerCase()} and reverses its effect on the customer's account.`)) return;
+                        cancel.mutate(n.id);
+                      }}>
+                      Cancel
+                    </button>
+                  )}
                 </div>
               </td>
             </tr>

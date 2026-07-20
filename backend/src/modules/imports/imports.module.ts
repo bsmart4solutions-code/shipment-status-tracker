@@ -1,4 +1,5 @@
-import { Body, Controller, Module, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Module, Post, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Type } from 'class-transformer';
 import { IsArray, IsNumber, IsOptional, IsString, IsUUID, ValidateNested } from 'class-validator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -46,6 +47,15 @@ class ImportsController {
   @Post('rates') @RequirePermission('rates.write')
   rates(@Body() dto: ImportRatesDto, @CurrentUser() user: { id: string }) {
     return this.imports.importRates(dto, user.id);
+  }
+
+  // Server-side workbook parsing (P0-6): the browser uploads the raw .xlsx and
+  // receives the extracted preview rows — no spreadsheet parser in the client.
+  // memoryStorage + 5 MB cap; the filename is never used as a path.
+  @Post('rates/parse') @RequirePermission('rates.write')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024, files: 1 } }))
+  parseRates(@UploadedFile() file: Express.Multer.File, @CurrentUser() user: { id: string }) {
+    return this.imports.parseRateSheet(file, user.id);
   }
 }
 

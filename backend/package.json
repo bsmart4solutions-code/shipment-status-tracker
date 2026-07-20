@@ -18,6 +18,7 @@
     "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1090.0",
     "@napi-rs/canvas": "^1.0.2",
     "@nestjs/common": "^10.4.15",
     "@nestjs/config": "^4.0.4",
@@ -30,6 +31,7 @@
     "bcryptjs": "^2.4.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "exceljs": "^4.4.0",
     "multer": "^2.2.0",
     "nest-winston": "^1.10.2",
     "nodemailer": "^9.0.3",

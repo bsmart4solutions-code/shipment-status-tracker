@@ -3,6 +3,24 @@
 All notable changes to the Shipment Status Tracker (Freight ERP) are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); sprint-based versioning.
 
+## [Sprint 02] — 2026-07-21 — Data Durability, Security Dependency & Hardening
+
+### Added
+- **Persistent object storage (P0-5):** pluggable Storage Driver layer — `local` (default, unchanged dev behaviour) and `s3` (Cloudflare R2 in production; any S3 API). Documents now survive redeploys; keys unchanged in the DB (zero migrations). Idempotent local→bucket migration script. Full design in `STORAGE.md`.
+- **Server-side Excel parsing:** `POST /api/imports/rates/parse` (5 MB / 10k-row / 50-col limits, typed errors, audit-logged) — untrusted workbooks never touch the browser.
+
+### Changed
+- **`xlsx` (SheetJS) completely removed (P0-6)** from both tiers — the only no-patch security dependency is gone. Rate-sheet parsing runs server-side on `exceljs`; Excel exports regenerated on `exceljs` (dynamic import). Note: legacy `.xls` files must be re-saved as `.xlsx`.
+- **M2:** note issuing is transactional with an invoice row lock — concurrent issues can no longer jointly over-credit (live race test: 201 + 400).
+- **M3:** DRAFT→ISSUED stamps the posting date as the SST tax point unless a document date was explicitly chosen.
+- **M4:** note update API rejects empty line sets and blank reasons.
+- **M6:** confirmation dialogs on note Issue and Cancel-of-ISSUED.
+
+### Tests
+- +34 backend tests (suite 140/140): storage drivers/facade, parser golden + exceljs round-trip, M2 concurrency, M3 stamping, M4 validation.
+
+---
+
 ## [Sprint 01A] — 2026-07-20 — Remediation of ARCHITECTURE_REVIEW High findings
 
 ### Fixed

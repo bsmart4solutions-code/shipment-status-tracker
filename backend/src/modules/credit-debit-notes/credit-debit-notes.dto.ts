@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import {
-  ArrayMinSize, IsArray, IsBoolean, IsDateString, IsIn, IsNumber, IsOptional, IsPositive,
-  IsString, IsUUID, Min, ValidateNested,
+  ArrayMinSize, IsArray, IsBoolean, IsDateString, IsIn, IsNotEmpty, IsNumber, IsOptional,
+  IsPositive, IsString, IsUUID, Min, ValidateNested,
 } from 'class-validator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
@@ -30,7 +30,8 @@ export class CreateNoteDto {
   @IsOptional() @IsUUID() customerId?: string;
   @IsOptional() @IsString() currency?: string;
   @IsOptional() @IsNumber() @Min(0) taxPct?: number;
-  @IsString() reason: string; // mandatory business reason
+  // M4: mandatory business reason — a blank string is not a reason.
+  @IsString() @IsNotEmpty({ message: 'A reason is required' }) reason: string;
   @IsOptional() @IsDateString() issueDate?: string;
   @IsOptional() @IsString() notes?: string;
   @IsArray() @ArrayMinSize(1, { message: 'Add at least one line before saving the note' })
@@ -41,9 +42,13 @@ export class CreateNoteDto {
 export class UpdateNoteDto {
   @IsOptional() @IsString() currency?: string;
   @IsOptional() @IsNumber() @Min(0) taxPct?: number;
-  @IsOptional() @IsString() reason?: string;
+  // M4: when a reason is supplied it must not be blank (it cannot be cleared).
+  @IsOptional() @IsString() @IsNotEmpty({ message: 'A reason is required' }) reason?: string;
   @IsOptional() @IsDateString() issueDate?: string;
   @IsOptional() @IsString() notes?: string;
-  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => NoteItemDto)
+  // M4: replacing the lines may never leave the note empty — create enforces
+  // ≥1 line and update must not weaken that invariant.
+  @IsOptional() @IsArray() @ArrayMinSize(1, { message: 'A note must keep at least one line' })
+  @ValidateNested({ each: true }) @Type(() => NoteItemDto)
   items?: NoteItemDto[];
 }

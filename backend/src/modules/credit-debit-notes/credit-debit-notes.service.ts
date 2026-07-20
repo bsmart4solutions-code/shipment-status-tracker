@@ -202,23 +202,55 @@ export class CreditDebitNotesService {
     });
   }
 
-  /** DRAFT → ISSUED: lock the document and (for credit notes) enforce the over-credit guard. */
+  /**
+   * DRAFT → ISSUED: lock the document and (for credit notes) enforce the
+   * over-credit guard. Runs in one transaction with the invoice row locked
+   * (M2) so two concurrent issues cannot both pass the guard, and stamps the
+   * SST tax-point date (M3): a draft that was auto-dated at creation gets
+   * today's date when it is actually posted; an explicitly chosen document
+   * date is preserved.
+   */
   async issue(id: string, userId?: string) {
-    const existing = await this.prisma.creditDebitNote.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException('Note not found');
-    assertNoteStatusTransition(existing.status, 'ISSUED');
-    if (existing.type === 'CREDIT' && existing.invoiceId) {
-      const already = await this.issuedCreditTotal(existing.invoiceId, id);
-      const inv = await this.prisma.invoice.findUnique({ where: { id: existing.invoiceId }, select: { totalAmount: true, amountPaid: true } });
-      try {
-        assertWithinCreditable(Number(existing.totalAmount), Number(inv?.totalAmount ?? 0), already, Number(inv?.amountPaid ?? 0));
-      } catch (e) {
-        if (e instanceof OverCreditError) throw new BadRequestException(e.message);
-        throw e;
+    const note = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.creditDebitNote.findUnique({ where: { id } });
+      if (!existing) throw new NotFoundException('Note not found');
+      assertNoteStatusTransition(existing.status, 'ISSUED');
+
+      if (existing.type === 'CREDIT' && existing.invoiceId) {
+        // M2: serialize concurrent issues against the same invoice — the row
+        // lock makes guard-check + status-write atomic (same FOR UPDATE
+        // pattern as sequence.service.ts).
+        const locked = await tx.$queryRaw<{ totalAmount: unknown; amountPaid: unknown }[]>`
+          SELECT "totalAmount", "amountPaid" FROM invoices WHERE id = ${existing.invoiceId} FOR UPDATE`;
+        const inv = locked[0];
+        const agg = await tx.creditDebitNote.aggregate({
+          where: { invoiceId: existing.invoiceId, type: 'CREDIT', status: 'ISSUED', id: { not: id } },
+          _sum: { totalAmount: true },
+        });
+        try {
+          assertWithinCreditable(
+            Number(existing.totalAmount),
+            Number(inv?.totalAmount ?? 0),
+            Number(agg._sum.totalAmount ?? 0),
+            Number(inv?.amountPaid ?? 0),
+          );
+        } catch (e) {
+          if (e instanceof OverCreditError) throw new BadRequestException(e.message);
+          throw e;
+        }
       }
-    }
-    const note = await this.prisma.creditDebitNote.update({ where: { id }, data: { status: 'ISSUED' } });
-    await this.audit.log({ userId, action: 'STATUS', entityType: 'creditDebitNote', entityId: id, detail: { from: existing.status, to: 'ISSUED' } });
+
+      // M3: an issueDate within a few seconds of createdAt is the creation
+      // default (nobody types a to-the-second timestamp) — restamp it to the
+      // actual posting time. A user-chosen date (a date-picker value) differs
+      // from createdAt and is kept.
+      const wasAutoDated = Math.abs(existing.issueDate.getTime() - existing.createdAt.getTime()) < 5_000;
+      return tx.creditDebitNote.update({
+        where: { id },
+        data: { status: 'ISSUED', updatedById: userId ?? null, ...(wasAutoDated ? { issueDate: new Date() } : {}) },
+      });
+    });
+    await this.audit.log({ userId, action: 'STATUS', entityType: 'creditDebitNote', entityId: id, detail: { from: 'DRAFT', to: 'ISSUED' } });
     return note;
   }
 

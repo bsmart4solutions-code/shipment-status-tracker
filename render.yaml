@@ -45,6 +45,20 @@ services:
         sync: false # set after first deploy: https://logistics-web-xxxx.onrender.com
       - key: BASE_CURRENCY
         value: MYR
+      # ── Document storage (Sprint 02, see STORAGE.md §3) ──
+      # Render's free-tier disk is ephemeral: keep STORAGE_DRIVER=s3 in
+      # production and fill the four values from your Cloudflare R2 bucket
+      # (Account ID + a bucket-scoped Object Read & Write API token).
+      - key: STORAGE_DRIVER
+        value: s3
+      - key: S3_ENDPOINT
+        sync: false # https://<ACCOUNT_ID>.r2.cloudflarestorage.com
+      - key: S3_BUCKET
+        sync: false # e.g. erp-documents
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
       - key: NODE_ENV
         value: production
       - key: LOG_LEVEL

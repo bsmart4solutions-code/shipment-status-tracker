@@ -26,7 +26,14 @@ Working list maintained at the end of each sprint. Backlog priorities live in
 ## ARCHITECTURE_REVIEW remediation status
 
 - [x] **H1–H4 fixed in Sprint 01A** (2026-07-20) — see `SPRINT_01A_REPORT.md`.
-- [ ] Medium findings M1–M10 and Low findings L1–L6 remain open — see `ARCHITECTURE_REVIEW.md` Part D for the recommended order (M2 transactional issue, M3 issue-date stamping, M4 DTO tightening are the next quick wins).
+- [x] **M2, M3, M4, M6 fixed in Sprint 02** (2026-07-21) — see `SPRINT_02_REPORT.md`.
+- [ ] Remaining open: M1 (notes against DRAFT invoices), M5 (`notes.issue` permission before non-admin billing users), M7 (AP model decision — belongs in the Sprint 03 AP plan), M8 (notes in job P&L), M9 (broader service-test coverage), M10 (single outstanding-balance owner — partially addressed by `issuedNoteNet`), L1–L6.
+
+## Sprint 02 follow-ups
+
+- [ ] **Production R2 cutover (user action):** create the R2 bucket + scoped API token, set the five `S3_*`/`STORAGE_DRIVER` env vars in Render (`STORAGE.md` §3). Until then production stays on the ephemeral local driver.
+- [ ] Consider `rclone` bucket backup sync + restore drill (`STORAGE.md` §10).
+- [ ] Presigned-URL download path when the Customer Portal lands (`STORAGE.md` §11).
 
 ## Next sprint candidate (needs Product Owner approval first)
 
