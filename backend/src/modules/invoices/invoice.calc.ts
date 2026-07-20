@@ -78,13 +78,19 @@ export class NonPositivePaymentError extends Error {
  * - Rejects overpayment (amount beyond the remaining balance).
  * - Derives PAID once the balance is fully settled, else PARTIALLY_PAID.
  *
+ * `noteNet` is the signed sum of ISSUED credit/debit notes against the
+ * invoice (credit −, debit +): the collectible total is `totalAmount +
+ * noteNet`, so a credited invoice cannot be over-collected and flips to
+ * PAID at its netted value, not the pre-credit face value.
+ *
  * Throws typed errors so the service can map them to the right HTTP status.
  */
-export function applyPayment(totalAmount: number, amountPaid: number, paymentAmount: number): PaymentOutcome {
+export function applyPayment(totalAmount: number, amountPaid: number, paymentAmount: number, noteNet = 0): PaymentOutcome {
   if (paymentAmount <= 0) throw new NonPositivePaymentError(paymentAmount);
-  const remaining = round2(totalAmount - amountPaid);
+  const collectible = round2(totalAmount + noteNet);
+  const remaining = round2(collectible - amountPaid);
   if (paymentAmount > remaining) throw new OverpaymentError(paymentAmount, remaining);
   const newAmountPaid = round2(amountPaid + paymentAmount);
-  const newStatus = newAmountPaid >= totalAmount ? 'PAID' : 'PARTIALLY_PAID';
+  const newStatus = newAmountPaid >= collectible ? 'PAID' : 'PARTIALLY_PAID';
   return { newAmountPaid, newStatus };
 }

@@ -20,8 +20,13 @@ Working list maintained at the end of each sprint. Backlog priorities live in
 ## Sprint 01 follow-ups (deferred by design)
 
 - [ ] PDF generation + email sending for credit/debit notes (invoice email exists; reuse it).
-- [ ] Customer credit-balance ledger for over-paid / over-credited invoices (belongs with P0-8 Statement of Account work).
+- [ ] Customer credit-balance ledger (belongs with P0-8 Statement of Account work). Since Sprint 01A this also gates two flows: crediting a PAID invoice (refund-on-account), and surfacing a debit-note remainder on a PAID invoice in aging.
 - [ ] Optional approval workflow for notes above a threshold (deferred per approved Sprint 01 defaults).
+
+## ARCHITECTURE_REVIEW remediation status
+
+- [x] **H1–H4 fixed in Sprint 01A** (2026-07-20) — see `SPRINT_01A_REPORT.md`.
+- [ ] Medium findings M1–M10 and Low findings L1–L6 remain open — see `ARCHITECTURE_REVIEW.md` Part D for the recommended order (M2 transactional issue, M3 issue-date stamping, M4 DTO tightening are the next quick wins).
 
 ## Next sprint candidate (needs Product Owner approval first)
 

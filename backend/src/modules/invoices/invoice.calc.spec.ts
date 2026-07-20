@@ -89,3 +89,31 @@ describe('Invoice payment application', () => {
     expect(applyPayment(0.3, 0.1, 0.2)).toEqual({ newAmountPaid: 0.3, newStatus: 'PAID' });
   });
 });
+
+// Regression: H1 (ARCHITECTURE_REVIEW) — the payment engine must collect
+// against the *netted* invoice total (face value + issued debit notes −
+// issued credit notes), not the pre-credit face value.
+describe('Invoice payment application with issued notes (noteNet)', () => {
+  it('rejects payment of the pre-credit face value once a credit note is issued', () => {
+    // 2138.40 invoice, 248.40 CN issued -> only 1890.00 is collectible
+    expect(() => applyPayment(2138.4, 0, 2138.4, -248.4)).toThrow(OverpaymentError);
+    expect(() => applyPayment(2138.4, 0, 2138.4, -248.4)).toThrow(/remaining balance of 1890/);
+  });
+
+  it('marks PAID at the netted total, not the face value', () => {
+    expect(applyPayment(2138.4, 0, 1890, -248.4)).toEqual({ newAmountPaid: 1890, newStatus: 'PAID' });
+  });
+
+  it('stays PARTIALLY_PAID below the netted total', () => {
+    expect(applyPayment(2138.4, 0, 1000, -248.4)).toEqual({ newAmountPaid: 1000, newStatus: 'PARTIALLY_PAID' });
+  });
+
+  it('a debit note raises the collectible total and keeps accepting payment', () => {
+    // 1000 fully paid, then a 200 DN issued -> 200 more is collectible
+    expect(applyPayment(1000, 1000, 200, 200)).toEqual({ newAmountPaid: 1200, newStatus: 'PAID' });
+  });
+
+  it('omitting noteNet keeps the original behaviour (backward compatibility)', () => {
+    expect(applyPayment(1000, 0, 1000)).toEqual({ newAmountPaid: 1000, newStatus: 'PAID' });
+  });
+});

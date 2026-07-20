@@ -3,6 +3,21 @@
 All notable changes to the Shipment Status Tracker (Freight ERP) are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); sprint-based versioning.
 
+## [Sprint 01A] — 2026-07-20 — Remediation of ARCHITECTURE_REVIEW High findings
+
+### Fixed
+- **H1** — Payments now collect against the *netted* invoice total (face value − issued credit notes + issued debit notes): overpayment guard and PAID status both use it. A credited invoice can no longer be over-collected.
+- **H2** — The over-credit guard now subtracts payments already received: a credit note is limited to the invoice's *unpaid remainder* (credit + cash can never exceed the invoice value). Consequence: a fully-PAID invoice can no longer receive a CN; the `+CN` shortcut is hidden on PAID rows.
+- **H3** — An invoice with live (DRAFT/ISSUED) credit/debit notes can no longer be cancelled — cancel the notes first (mirrors the existing payments guard).
+- **H4** — An invoice-linked note is pinned to the invoice currency server-side (create + update); the currency selector locks in the UI once an invoice is picked. Standalone debit notes keep free currency choice.
+
+### Tests
+- +20 regression tests (suite now 106): payment netting, unpaid-remainder guard, cancel blocking, currency pinning. No schema changes, no breaking API changes.
+
+See `SPRINT_01A_REPORT.md` for root causes, live verification, and risks.
+
+---
+
 ## [Sprint 01] — 2026-07-20 — Credit & Debit Notes
 
 ### Added

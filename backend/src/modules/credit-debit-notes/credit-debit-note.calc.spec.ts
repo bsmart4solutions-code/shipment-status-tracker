@@ -60,3 +60,30 @@ describe('Over-credit guard', () => {
     expect(() => assertWithinCreditable(0.01, 1060, 1060)).toThrow(OverCreditError);
   });
 });
+
+// Regression: H2 (ARCHITECTURE_REVIEW) — the guard must also subtract cash
+// already received, so credit + payments can never exceed the invoice value.
+describe('Over-credit guard with payments received (amountPaid)', () => {
+  it('allows crediting exactly the unpaid remainder', () => {
+    // 1000 invoice, 600 paid -> 400 creditable
+    expect(() => assertWithinCreditable(400, 1000, 0, 600)).not.toThrow();
+  });
+
+  it('rejects a credit note beyond the unpaid remainder', () => {
+    expect(() => assertWithinCreditable(401, 1000, 0, 600)).toThrow(OverCreditError);
+    expect(() => assertWithinCreditable(401, 1000, 0, 600)).toThrow(/creditable balance of 400/);
+  });
+
+  it('rejects any credit against a fully-paid invoice', () => {
+    expect(() => assertWithinCreditable(0.01, 1000, 0, 1000)).toThrow(OverCreditError);
+  });
+
+  it('combines payments and prior credits: 1000 − 600 paid − 300 credited = 100 creditable', () => {
+    expect(() => assertWithinCreditable(100, 1000, 300, 600)).not.toThrow();
+    expect(() => assertWithinCreditable(100.01, 1000, 300, 600)).toThrow(OverCreditError);
+  });
+
+  it('omitting amountPaid keeps the original behaviour (backward compatibility)', () => {
+    expect(() => assertWithinCreditable(1060, 1060, 0)).not.toThrow();
+  });
+});

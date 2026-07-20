@@ -106,11 +106,11 @@ export class CreditDebitNotesService {
 
   async create(dto: CreateNoteDto, userId?: string) {
     // CREDIT must reference an invoice; DEBIT may be standalone but then needs a customer.
-    let invoice = null as null | { id: string; customerId: string; currency: string; status: string; totalAmount: Prisma.Decimal };
+    let invoice = null as null | { id: string; customerId: string; currency: string; status: string; totalAmount: Prisma.Decimal; amountPaid: Prisma.Decimal };
     if (dto.invoiceId) {
       invoice = await this.prisma.invoice.findUnique({
         where: { id: dto.invoiceId },
-        select: { id: true, customerId: true, currency: true, status: true, totalAmount: true },
+        select: { id: true, customerId: true, currency: true, status: true, totalAmount: true, amountPaid: true },
       });
       if (!invoice) throw new NotFoundException('Invoice not found');
       if (invoice.status === 'CANCELLED') throw new ConflictException('Cannot raise a note against a cancelled invoice');
@@ -120,7 +120,10 @@ export class CreditDebitNotesService {
 
     const customerId = invoice?.customerId ?? dto.customerId;
     if (!customerId) throw new BadRequestException('customerId is required for a standalone debit note');
-    const currency = dto.currency || invoice?.currency || 'MYR';
+    // An invoice-linked note is always in the invoice currency — the guard
+    // and the aging netting subtract raw amounts, so a currency mismatch
+    // would corrupt both. Only standalone notes may choose a currency.
+    const currency = invoice ? invoice.currency : dto.currency || 'MYR';
     const taxPct = dto.taxPct ?? 0;
 
     const rows = this.buildItems(dto.items);
@@ -132,7 +135,7 @@ export class CreditDebitNotesService {
     if (dto.type === 'CREDIT' && invoice) {
       const already = await this.issuedCreditTotal(invoice.id);
       try {
-        assertWithinCreditable(totals.totalAmount, Number(invoice.totalAmount), already);
+        assertWithinCreditable(totals.totalAmount, Number(invoice.totalAmount), already, Number(invoice.amountPaid));
       } catch (e) {
         if (e instanceof OverCreditError) throw new BadRequestException(e.message);
         throw e;
@@ -184,7 +187,8 @@ export class CreditDebitNotesService {
       const note = await tx.creditDebitNote.update({
         where: { id },
         data: {
-          currency: dto.currency,
+          // Invoice-linked notes stay in the invoice currency (see create()).
+          currency: existing.invoiceId ? undefined : dto.currency,
           taxPct,
           reason: dto.reason,
           issueDate: dto.issueDate ? new Date(dto.issueDate) : undefined,
@@ -205,9 +209,9 @@ export class CreditDebitNotesService {
     assertNoteStatusTransition(existing.status, 'ISSUED');
     if (existing.type === 'CREDIT' && existing.invoiceId) {
       const already = await this.issuedCreditTotal(existing.invoiceId, id);
-      const inv = await this.prisma.invoice.findUnique({ where: { id: existing.invoiceId }, select: { totalAmount: true } });
+      const inv = await this.prisma.invoice.findUnique({ where: { id: existing.invoiceId }, select: { totalAmount: true, amountPaid: true } });
       try {
-        assertWithinCreditable(Number(existing.totalAmount), Number(inv?.totalAmount ?? 0), already);
+        assertWithinCreditable(Number(existing.totalAmount), Number(inv?.totalAmount ?? 0), already, Number(inv?.amountPaid ?? 0));
       } catch (e) {
         if (e instanceof OverCreditError) throw new BadRequestException(e.message);
         throw e;

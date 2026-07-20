@@ -113,13 +113,15 @@ export default function InvoicesPage() {
                       <Mail size={13} /> Email
                     </button>
                   )}
+                  {/* A PAID invoice has no unpaid remainder to credit (the API
+                      rejects it), so +CN is only offered while a balance exists. */}
+                  {canWrite && (inv.status === 'ISSUED' || inv.status === 'PARTIALLY_PAID') && (
+                    <button className="text-primary hover:underline text-sm" title="Create Credit Note against this invoice"
+                      onClick={() => setNoteFor({ invoice: inv, type: 'CREDIT' })}>+CN</button>
+                  )}
                   {canWrite && (inv.status === 'ISSUED' || inv.status === 'PARTIALLY_PAID' || inv.status === 'PAID') && (
-                    <>
-                      <button className="text-primary hover:underline text-sm" title="Create Credit Note against this invoice"
-                        onClick={() => setNoteFor({ invoice: inv, type: 'CREDIT' })}>+CN</button>
-                      <button className="text-primary hover:underline text-sm" title="Create Debit Note against this invoice"
-                        onClick={() => setNoteFor({ invoice: inv, type: 'DEBIT' })}>+DN</button>
-                    </>
+                    <button className="text-primary hover:underline text-sm" title="Create Debit Note against this invoice"
+                      onClick={() => setNoteFor({ invoice: inv, type: 'DEBIT' })}>+DN</button>
                   )}
                   {canWrite && inv.status !== 'PAID' && inv.status !== 'CANCELLED' && (
                     <button className="text-red-500 hover:underline text-sm" onClick={() => cancel.mutate(inv.id)}>Cancel</button>

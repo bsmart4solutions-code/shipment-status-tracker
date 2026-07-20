@@ -345,6 +345,14 @@ export class InvoicesService {
     if (Number(existing.amountPaid) > 0) {
       throw new ConflictException('Cannot cancel an invoice with recorded payments — reverse the payments first');
     }
+    // Mirror of the notes module's own rule (no note may be created against a
+    // cancelled invoice): an invoice with live notes cannot be voided either.
+    const liveNotes = await this.prisma.creditDebitNote.count({
+      where: { invoiceId: id, status: { in: ['DRAFT', 'ISSUED'] } },
+    });
+    if (liveNotes > 0) {
+      throw new ConflictException('Cannot cancel an invoice with credit/debit notes against it — cancel the notes first');
+    }
     assertInvoiceStatusTransition(existing.status, 'CANCELLED');
     const invoice = await this.prisma.invoice.update({ where: { id }, data: { status: 'CANCELLED' } });
     await this.audit.log({ userId, action: 'STATUS', entityType: 'invoice', entityId: id, detail: { from: existing.status, to: 'CANCELLED' } });
@@ -358,10 +366,11 @@ export class InvoicesService {
     if (existing.status !== 'ISSUED' && existing.status !== 'PARTIALLY_PAID') {
       throw new BadRequestException(`Cannot record a payment on a ${existing.status} invoice`);
     }
+    const noteNet = await this.issuedNoteNet(id);
     let newAmountPaid: number;
     let newStatus: 'PARTIALLY_PAID' | 'PAID';
     try {
-      ({ newAmountPaid, newStatus } = applyPayment(Number(existing.totalAmount), Number(existing.amountPaid), dto.amount));
+      ({ newAmountPaid, newStatus } = applyPayment(Number(existing.totalAmount), Number(existing.amountPaid), dto.amount, noteNet));
     } catch (e) {
       if (e instanceof OverpaymentError || e instanceof NonPositivePaymentError) throw new BadRequestException(e.message);
       throw e;
@@ -386,6 +395,20 @@ export class InvoicesService {
       });
       return payment;
     });
+  }
+
+  /**
+   * Signed net of ISSUED credit/debit notes against one invoice (credit −,
+   * debit +). Same semantics as the batch groupBy in agingReport — payments
+   * and aging must agree on what the invoice's collectible total is.
+   */
+  private async issuedNoteNet(invoiceId: string): Promise<number> {
+    const agg = await this.prisma.creditDebitNote.groupBy({
+      by: ['type'],
+      where: { invoiceId, status: 'ISSUED' },
+      _sum: { totalAmount: true },
+    });
+    return agg.reduce((s, g) => s + (g.type === 'CREDIT' ? -1 : 1) * Number(g._sum.totalAmount ?? 0), 0);
   }
 
   /** Aging report: outstanding balance of ISSUED/PARTIALLY_PAID invoices, bucketed by days overdue. */

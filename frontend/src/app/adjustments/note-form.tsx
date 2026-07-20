@@ -153,7 +153,9 @@ export function NoteModal({ type, note, initialInvoiceId, onClose }: {
               </div>
             )}
             <div><label className="label">Currency</label>
-              <select className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></div>
+              <select className="input disabled:opacity-60" value={currency} disabled={!!invoiceId}
+                title={invoiceId ? 'An invoice-linked note is always in the invoice currency' : undefined}
+                onChange={(e) => setCurrency(e.target.value)}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></div>
             <div><label className="label">SST %</label><input className="input" type="number" step="0.01" min="0" value={taxPct} onChange={(e) => setTaxPct(Number(e.target.value))} /></div>
             <div><label className="label">Issue Date</label><input className="input" type="date" value={issueDate} onChange={(e) => setIssueDate(e.target.value)} /></div>
             <div className="col-span-2 md:col-span-4"><label className="label">Reason <span className="text-red-500">*</span></label>

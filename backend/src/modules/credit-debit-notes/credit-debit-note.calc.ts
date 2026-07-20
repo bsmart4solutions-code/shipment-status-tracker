@@ -31,12 +31,15 @@ export class OverCreditError extends Error {
 }
 
 /**
- * A CREDIT note cannot credit more than the invoice's net total minus the
- * total of credit notes already issued against it. `invoiceTotal` and
- * `alreadyCredited` are tax-inclusive grand totals in the invoice currency.
+ * A CREDIT note cannot credit more than the invoice's *unpaid* remainder:
+ * invoice total minus payments already received minus credit notes already
+ * issued against it. Crediting cash the customer has already paid would
+ * create a customer credit balance, which this system does not ledger yet
+ * (credit-on-account against paid amounts is deferred to the SOA work).
+ * All figures are tax-inclusive grand totals in the invoice currency.
  */
-export function assertWithinCreditable(noteTotal: number, invoiceTotal: number, alreadyCredited: number): void {
-  const available = round2(invoiceTotal - alreadyCredited);
+export function assertWithinCreditable(noteTotal: number, invoiceTotal: number, alreadyCredited: number, amountPaid = 0): void {
+  const available = round2(invoiceTotal - amountPaid - alreadyCredited);
   if (round2(noteTotal) > available + 1e-6) {
     throw new OverCreditError(noteTotal, available);
   }
