@@ -11,6 +11,7 @@ import { api, hasPermission } from '@/lib/api';
 import { fmtDate, fmtMoney } from '@/lib/utils';
 import { exportToXlsx } from '@/lib/xlsx-export';
 import { EmailDialog } from '@/components/email-dialog';
+import { NoteModal } from '../adjustments/note-form';
 
 const INVOICE_STATUSES = ['DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'CANCELLED'];
 const INVOICE_COLS = ['Invoice #', 'Customer', 'Job', 'Total', 'Paid', 'Balance', 'Due Date', 'Status'];
@@ -32,6 +33,7 @@ export default function InvoicesPage() {
   const [paying, setPaying] = useState<InvoiceRow | null>(null);
   const [showAging, setShowAging] = useState(false);
   const [emailFor, setEmailFor] = useState<InvoiceRow | null>(null);
+  const [noteFor, setNoteFor] = useState<{ invoice: InvoiceRow; type: 'CREDIT' | 'DEBIT' } | null>(null);
   const cols = useColumns('invoices', INVOICE_COLS);
 
   const { data } = useQuery({
@@ -111,6 +113,14 @@ export default function InvoicesPage() {
                       <Mail size={13} /> Email
                     </button>
                   )}
+                  {canWrite && (inv.status === 'ISSUED' || inv.status === 'PARTIALLY_PAID' || inv.status === 'PAID') && (
+                    <>
+                      <button className="text-primary hover:underline text-sm" title="Create Credit Note against this invoice"
+                        onClick={() => setNoteFor({ invoice: inv, type: 'CREDIT' })}>+CN</button>
+                      <button className="text-primary hover:underline text-sm" title="Create Debit Note against this invoice"
+                        onClick={() => setNoteFor({ invoice: inv, type: 'DEBIT' })}>+DN</button>
+                    </>
+                  )}
                   {canWrite && inv.status !== 'PAID' && inv.status !== 'CANCELLED' && (
                     <button className="text-red-500 hover:underline text-sm" onClick={() => cancel.mutate(inv.id)}>Cancel</button>
                   )}
@@ -128,6 +138,9 @@ export default function InvoicesPage() {
       {showAging && <AgingModal onClose={() => setShowAging(false)} />}
       {emailFor && (
         <EmailDialog title={`Email invoice ${emailFor.invoiceNumber}`} endpoint={`/invoices/${emailFor.id}/email`} onClose={() => setEmailFor(null)} />
+      )}
+      {noteFor && (
+        <NoteModal type={noteFor.type} note={null} initialInvoiceId={noteFor.invoice.id} onClose={() => setNoteFor(null)} />
       )}
     </Shell>
   );

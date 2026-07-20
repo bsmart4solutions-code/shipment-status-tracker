@@ -44,6 +44,16 @@ const INVOICE_EDGES: Record<InvoiceStatus, Set<InvoiceStatus>> = {
   CANCELLED: new Set(['CANCELLED']),
 };
 
+// Credit/Debit note lifecycle: DRAFT is editable; ISSUED is locked and has
+// applied to AR; CANCELLED voids a draft/issued note (issued-with-effect
+// reversal is handled in the service before allowing the cancel).
+type AdjustmentStatus = 'DRAFT' | 'ISSUED' | 'CANCELLED';
+const ADJUSTMENT_EDGES: Record<AdjustmentStatus, Set<AdjustmentStatus>> = {
+  DRAFT: new Set(['DRAFT', 'ISSUED', 'CANCELLED']),
+  ISSUED: new Set(['ISSUED', 'CANCELLED']),
+  CANCELLED: new Set(['CANCELLED']),
+};
+
 export function assertQuotationStatusTransition(from: QuotationStatus, to: QuotationStatus): void {
   const allowed = QUOTATION_EDGES[from];
   if (!allowed?.has(to)) {
@@ -62,5 +72,12 @@ export function assertInvoiceStatusTransition(from: InvoiceStatus, to: InvoiceSt
   const allowed = INVOICE_EDGES[from];
   if (!allowed?.has(to)) {
     throw new BadRequestException(`Invoice status cannot change from ${from} to ${to}`);
+  }
+}
+
+export function assertNoteStatusTransition(from: AdjustmentStatus, to: AdjustmentStatus): void {
+  const allowed = ADJUSTMENT_EDGES[from];
+  if (!allowed?.has(to)) {
+    throw new BadRequestException(`Note status cannot change from ${from} to ${to}`);
   }
 }

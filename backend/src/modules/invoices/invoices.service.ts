@@ -395,6 +395,20 @@ export class InvoicesService {
       include: { customer: { select: { companyName: true, code: true } } },
       orderBy: { dueDate: 'asc' },
     });
+    // Net issued credit/debit notes into each invoice's outstanding balance:
+    // a credit note reduces receivable, a debit note increases it. Only ISSUED
+    // notes affect AR (read-only — the notes module owns the write path).
+    const noteAgg = await this.prisma.creditDebitNote.groupBy({
+      by: ['invoiceId', 'type'],
+      where: { status: 'ISSUED', invoiceId: { in: invoices.map((i) => i.id) } },
+      _sum: { totalAmount: true },
+    });
+    const noteNet = new Map<string, number>(); // invoiceId -> signed adjustment
+    for (const g of noteAgg) {
+      if (!g.invoiceId) continue;
+      const signed = (g.type === 'CREDIT' ? -1 : 1) * Number(g._sum.totalAmount ?? 0);
+      noteNet.set(g.invoiceId, (noteNet.get(g.invoiceId) ?? 0) + signed);
+    }
     const now = new Date();
     const bucketOf = (daysOverdue: number) => {
       if (daysOverdue <= 0) return 'Current';
@@ -404,7 +418,7 @@ export class InvoicesService {
       return '90+';
     };
     const rows = invoices.map((inv) => {
-      const balance = r2(Number(inv.totalAmount) - Number(inv.amountPaid));
+      const balance = r2(Number(inv.totalAmount) - Number(inv.amountPaid) + (noteNet.get(inv.id) ?? 0));
       const daysOverdue = inv.dueDate ? Math.floor((now.getTime() - inv.dueDate.getTime()) / 86400000) : -1;
       return {
         id: inv.id,
@@ -416,7 +430,7 @@ export class InvoicesService {
         daysOverdue,
         bucket: bucketOf(daysOverdue),
       };
-    });
+    }).filter((r) => r.balance > 0.005); // fully-credited invoices drop off aging
     const bucketOrder = ['Current', '1-30', '31-60', '61-90', '90+'];
     const buckets = bucketOrder.map((label) => {
       const inBucket = rows.filter((r) => r.bucket === label);

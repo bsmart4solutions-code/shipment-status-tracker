@@ -51,6 +51,8 @@ model User {
   vendorsAssigned    Vendor[]          @relation("VendorBuyer")
   vendorsCreated     Vendor[]          @relation("VendorCreatedBy")
   vendorsUpdated     Vendor[]          @relation("VendorUpdatedBy")
+  notesCreated       CreditDebitNote[] @relation("NoteCreatedBy")
+  notesUpdated       CreditDebitNote[] @relation("NoteUpdatedBy")
 
   @@map("users")
 }
@@ -194,6 +196,7 @@ model Customer {
   addresses    CustomerAddress[]
   documents    CustomerDocument[]
   bankAccounts CustomerBankAccount[]
+  creditDebitNotes CreditDebitNote[]
 
   @@index([companyName])
   @@index([deletedAt])
@@ -756,6 +759,7 @@ model Invoice {
 
   payments InvoicePayment[]
   items    InvoiceItem[]
+  creditDebitNotes CreditDebitNote[]
 
   @@index([customerId])
   @@index([status])
@@ -781,6 +785,77 @@ model InvoiceItem {
 
   @@index([invoiceId])
   @@map("invoice_items")
+}
+
+// ── Credit / Debit Notes ─────────────────────────────────────────────
+// Post-invoice adjustments as distinct, sequentially-numbered legal
+// documents (SST compliance): a CREDIT note reverses part/all of an
+// issued invoice; a DEBIT note adds a charge. Shares the invoice's
+// itemized structure so the SST/SVE tax engine and print layout are
+// reused. Effects apply to AR only when ISSUED.
+enum CreditDebitType {
+  CREDIT
+  DEBIT
+}
+
+enum AdjustmentStatus {
+  DRAFT
+  ISSUED
+  CANCELLED
+}
+
+model CreditDebitNote {
+  id          String           @id @default(uuid())
+  noteNumber  String           @unique // auto: CN-2026-0001 / DN-2026-0001
+  type        CreditDebitType
+  // CREDIT must reference an invoice; DEBIT may be standalone. Restrict:
+  // an invoice with notes must not be hard-deleted (cancel flow handles it).
+  invoiceId   String?
+  invoice     Invoice?         @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  customerId  String
+  customer    Customer         @relation(fields: [customerId], references: [id])
+  currency    String           @default("MYR")
+  subtotal    Decimal          @default(0) @db.Decimal(14, 2)
+  taxPct      Decimal          @default(0) @db.Decimal(7, 4)
+  taxAmt      Decimal          @default(0) @db.Decimal(14, 2)
+  totalAmount Decimal          @default(0) @db.Decimal(14, 2)
+  status      AdjustmentStatus @default(DRAFT)
+  reason      String? // mandatory business reason (validated in DTO)
+  issueDate   DateTime         @default(now())
+  notes       String?
+  createdById String?
+  createdBy   User?            @relation("NoteCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById String?
+  updatedBy   User?            @relation("NoteUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  items CreditDebitNoteItem[]
+
+  @@index([invoiceId])
+  @@index([customerId])
+  @@index([type])
+  @@index([status])
+  @@map("credit_debit_notes")
+}
+
+model CreditDebitNoteItem {
+  id           String          @id @default(uuid())
+  noteId       String
+  note         CreditDebitNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  description  String
+  unitPrice    Decimal         @default(0) @db.Decimal(14, 4)
+  unit         String?
+  quantity     Decimal         @default(1) @db.Decimal(14, 4)
+  lineCurrency String          @default("MYR")
+  fxRate       Decimal         @default(1) @db.Decimal(14, 6)
+  amount       Decimal         @default(0) @db.Decimal(14, 2)
+  taxExempt    Boolean         @default(false)
+  accNo        String?
+  sortOrder    Int             @default(0)
+
+  @@index([noteId])
+  @@map("credit_debit_note_items")
 }
 
 model InvoicePayment {

@@ -114,6 +114,8 @@ async function main() {
     { key: 'quotation', prefix: 'QT', padding: 4, includeYear: true },
     { key: 'job', prefix: 'JOB', padding: 4, includeYear: true },
     { key: 'invoice', prefix: 'INV', padding: 4, includeYear: true },
+    { key: 'creditNote', prefix: 'CN', padding: 4, includeYear: true },
+    { key: 'debitNote', prefix: 'DN', padding: 4, includeYear: true },
   ];
   for (const s of sequences) {
     await prisma.sequence.upsert({ where: { key: s.key }, update: {}, create: s });
