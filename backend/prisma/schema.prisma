@@ -520,10 +520,18 @@ model Quotation {
   attn          String? // attention person on the customer side
   pol           String? // Port of Loading, e.g. "PORT KLANG, MALAYSIA"
   pod           String? // Port of Discharge, e.g. "KUCHING, MALAYSIA"
-  shipmentType  String? // "Full Container Load" / "LCL Cargo" / "Air Freight"...
-  goods         String? // cargo description, e.g. "GEARBOX"
-  shippingTerm  String? // Incoterm, e.g. "FREE ON BOARD"
+  finalDestination String? // door/inland destination if beyond POD
+  modeOfTransport String? // "Sea Freight" / "Air Freight" / "Rail" / "Truck"
+  shipmentType  String? // FCL / LCL / Air / Truck (service type)
+  carrier       String? // shipping line / airline (leave blank/TBA if unknown)
+  transitTime   String? // e.g. "7-9 days" or "TBA"
+  freeTime      String? // demurrage/detention free days, e.g. "14 days"
+  goods         String? // cargo description / commodity, e.g. "GEARBOX"
+  cargoWeight   String? // e.g. "20,000 KG"
+  cargoVolume   String? // e.g. "58 CBM"
+  shippingTerm  String? // Incoterm, e.g. "FOB" / "CIF"
   paymentTerm   String? // "CASH" / "NET 30"...
+  exclusions    String? // what the quote excludes (insurance, duties, etc.)
   // Costing engine outputs (denormalized totals for fast listing; recomputed on every item change)
   totalCost     Decimal         @default(0) @db.Decimal(14, 2)
   subtotalSell  Decimal         @default(0) @db.Decimal(14, 2)

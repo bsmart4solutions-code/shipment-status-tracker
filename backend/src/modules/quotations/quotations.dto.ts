@@ -39,10 +39,18 @@ export class CreateQuotationDto {
   @IsOptional() @IsString() attn?: string;
   @IsOptional() @IsString() pol?: string;
   @IsOptional() @IsString() pod?: string;
+  @IsOptional() @IsString() finalDestination?: string;
+  @IsOptional() @IsString() modeOfTransport?: string;
   @IsOptional() @IsString() shipmentType?: string;
+  @IsOptional() @IsString() carrier?: string;
+  @IsOptional() @IsString() transitTime?: string;
+  @IsOptional() @IsString() freeTime?: string;
   @IsOptional() @IsString() goods?: string;
+  @IsOptional() @IsString() cargoWeight?: string;
+  @IsOptional() @IsString() cargoVolume?: string;
   @IsOptional() @IsString() shippingTerm?: string;
   @IsOptional() @IsString() paymentTerm?: string;
+  @IsOptional() @IsString() exclusions?: string;
   // A quotation with zero priced items is not a real quote — the "New
   // Quotation" form used to let you submit one with the default blank row
   // untouched (no service picked), silently creating an empty MYR 0.00 quote.

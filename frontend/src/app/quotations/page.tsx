@@ -200,7 +200,8 @@ interface ItemDraft {
 
 const CURRENCIES = ['MYR', 'USD', 'SGD', 'EUR', 'CNY'];
 const UNIT_OPTIONS = ['KG', 'CBM', 'TON', 'CONTAINER 20FT', 'CONTAINER 40FT', 'TRIP', 'SET', 'PKG', 'LOT', 'SHIPMENT', 'HOUR', 'DAY'];
-const SHIPMENT_TYPES = ['Full Container Load', 'LCL Cargo', 'Air Freight', 'Land Transport', 'Transhipment'];
+const MODES = ['Sea Freight', 'Air Freight', 'Rail', 'Truck', 'Multimodal'];
+const SHIPMENT_TYPES = ['FCL', 'LCL', 'Air', 'Truck', 'Full Container Load', 'LCL Cargo', 'Transhipment'];
 const SHIPPING_TERMS = ['EXW', 'FCA', 'FOB', 'CFR', 'CIF', 'CPT', 'CIP', 'DAP', 'DPU', 'DDP'];
 
 function SectionHeader({ icon: Icon, title, action }: { icon: React.ElementType; title: string; action?: React.ReactNode }) {
@@ -229,10 +230,19 @@ function QuotationBuilder({ editId, onClose }: { editId?: string; onClose: () =>
   const [attn, setAttn] = useState('');
   const [pol, setPol] = useState('');
   const [pod, setPod] = useState('');
+  const [finalDestination, setFinalDestination] = useState('');
+  const [modeOfTransport, setModeOfTransport] = useState('');
   const [shipmentType, setShipmentType] = useState('');
+  const [carrier, setCarrier] = useState('');
+  const [transitTime, setTransitTime] = useState('');
+  const [freeTime, setFreeTime] = useState('');
   const [goods, setGoods] = useState('');
+  const [cargoWeight, setCargoWeight] = useState('');
+  const [cargoVolume, setCargoVolume] = useState('');
   const [shippingTerm, setShippingTerm] = useState('');
   const [paymentTerm, setPaymentTerm] = useState('CASH');
+  const [validityDate, setValidityDate] = useState('');
+  const [exclusions, setExclusions] = useState('');
   const [items, setItems] = useState<ItemDraft[]>([
     { serviceId: '', vendorId: '', description: '', quantity: 1, unit: '', costCurrency: 'MYR', unitCost: 0, markupPct: 20, taxExempt: false },
   ]);
@@ -260,10 +270,19 @@ function QuotationBuilder({ editId, onClose }: { editId?: string; onClose: () =>
     setAttn(editQuote.attn ?? '');
     setPol(editQuote.pol ?? '');
     setPod(editQuote.pod ?? '');
+    setFinalDestination(editQuote.finalDestination ?? '');
+    setModeOfTransport(editQuote.modeOfTransport ?? '');
     setShipmentType(editQuote.shipmentType ?? '');
+    setCarrier(editQuote.carrier ?? '');
+    setTransitTime(editQuote.transitTime ?? '');
+    setFreeTime(editQuote.freeTime ?? '');
     setGoods(editQuote.goods ?? '');
+    setCargoWeight(editQuote.cargoWeight ?? '');
+    setCargoVolume(editQuote.cargoVolume ?? '');
     setShippingTerm(editQuote.shippingTerm ?? '');
     setPaymentTerm(editQuote.paymentTerm ?? '');
+    setValidityDate(editQuote.validityDate ? String(editQuote.validityDate).slice(0, 10) : '');
+    setExclusions(editQuote.exclusions ?? '');
     setItems(editQuote.items.map((i: any) => ({
       serviceId: i.serviceId, vendorId: i.vendorId ?? '', rateId: i.rateId ?? undefined,
       description: i.description ?? '', quantity: Number(i.quantity), unit: i.unit ?? '',
@@ -329,8 +348,12 @@ function QuotationBuilder({ editId, onClose }: { editId?: string; onClose: () =>
       body: JSON.stringify({
         customerId, currency, discountPct, serviceChargePct, miscCharge, taxPct, remark,
         subject: subject || undefined, yourRef: yourRef || undefined, attn: attn || undefined,
-        pol: pol || undefined, pod: pod || undefined, shipmentType: shipmentType || undefined,
-        goods: goods || undefined, shippingTerm: shippingTerm || undefined, paymentTerm: paymentTerm || undefined,
+        pol: pol || undefined, pod: pod || undefined, finalDestination: finalDestination || undefined,
+        modeOfTransport: modeOfTransport || undefined, shipmentType: shipmentType || undefined,
+        carrier: carrier || undefined, transitTime: transitTime || undefined, freeTime: freeTime || undefined,
+        goods: goods || undefined, cargoWeight: cargoWeight || undefined, cargoVolume: cargoVolume || undefined,
+        shippingTerm: shippingTerm || undefined, paymentTerm: paymentTerm || undefined,
+        validityDate: validityDate || undefined, exclusions: exclusions || undefined,
         items: items.filter((i) => i.serviceId).map((i) => ({
           ...i, vendorId: i.vendorId || undefined, rateId: i.rateId || undefined,
           minimumCharge: i.minimumCharge || undefined,
@@ -388,9 +411,16 @@ function QuotationBuilder({ editId, onClose }: { editId?: string; onClose: () =>
                 <input className="input" placeholder="PORT KLANG, MALAYSIA" value={pol} onChange={(e) => setPol(e.target.value)} /></div>
               <div><label className="label">POD <span className="text-gray-400 font-normal">(Port of Discharge)</span></label>
                 <input className="input" placeholder="KUCHING, MALAYSIA" value={pod} onChange={(e) => setPod(e.target.value)} /></div>
+              <div><label className="label">Final Destination <span className="text-gray-400 font-normal">(if door)</span></label>
+                <input className="input" placeholder="e.g. SHANGHAI DOOR" value={finalDestination} onChange={(e) => setFinalDestination(e.target.value)} /></div>
               <div>
-                <label className="label">Shipment Type</label>
-                <input className="input" list="quote-shipment-types" placeholder="Full Container Load" value={shipmentType} onChange={(e) => setShipmentType(e.target.value)} />
+                <label className="label">Mode of Transport</label>
+                <input className="input" list="quote-modes" placeholder="Sea Freight" value={modeOfTransport} onChange={(e) => setModeOfTransport(e.target.value)} />
+                <datalist id="quote-modes">{MODES.map((t) => <option key={t} value={t} />)}</datalist>
+              </div>
+              <div>
+                <label className="label">Service Type</label>
+                <input className="input" list="quote-shipment-types" placeholder="FCL / LCL / Air" value={shipmentType} onChange={(e) => setShipmentType(e.target.value)} />
                 <datalist id="quote-shipment-types">{SHIPMENT_TYPES.map((t) => <option key={t} value={t} />)}</datalist>
               </div>
               <div>
@@ -398,8 +428,22 @@ function QuotationBuilder({ editId, onClose }: { editId?: string; onClose: () =>
                 <input className="input" list="quote-shipping-terms" placeholder="FOB" value={shippingTerm} onChange={(e) => setShippingTerm(e.target.value)} />
                 <datalist id="quote-shipping-terms">{SHIPPING_TERMS.map((t) => <option key={t} value={t} />)}</datalist>
               </div>
-              <div className="col-span-2"><label className="label">Goods <span className="text-gray-400 font-normal">(cargo description)</span></label>
-                <input className="input" placeholder="e.g. GEARBOX" value={goods} onChange={(e) => setGoods(e.target.value)} /></div>
+              <div><label className="label">Carrier <span className="text-gray-400 font-normal">(leave blank = TBA)</span></label>
+                <input className="input" placeholder="TBA" value={carrier} onChange={(e) => setCarrier(e.target.value)} /></div>
+              <div><label className="label">Transit Time</label>
+                <input className="input" placeholder="e.g. 7-9 days / TBA" value={transitTime} onChange={(e) => setTransitTime(e.target.value)} /></div>
+              <div><label className="label">Free Time</label>
+                <input className="input" placeholder="e.g. 14 days" value={freeTime} onChange={(e) => setFreeTime(e.target.value)} /></div>
+              <div><label className="label">Validity <span className="text-gray-400 font-normal">(blank = +30 days)</span></label>
+                <input className="input" type="date" value={validityDate} onChange={(e) => setValidityDate(e.target.value)} /></div>
+              <div className="col-span-2"><label className="label">Commodity / Goods</label>
+                <input className="input" placeholder="e.g. GEARBOX (general cargo)" value={goods} onChange={(e) => setGoods(e.target.value)} /></div>
+              <div><label className="label">Cargo Weight</label>
+                <input className="input" placeholder="e.g. 20,000 KG" value={cargoWeight} onChange={(e) => setCargoWeight(e.target.value)} /></div>
+              <div><label className="label">Cargo Volume</label>
+                <input className="input" placeholder="e.g. 58 CBM" value={cargoVolume} onChange={(e) => setCargoVolume(e.target.value)} /></div>
+              <div className="col-span-2 md:col-span-4"><label className="label">Exclusions <span className="text-gray-400 font-normal">(what this quote does not cover)</span></label>
+                <textarea className="input" rows={2} placeholder="e.g. Insurance, duties & taxes, destination customs clearance, demurrage/detention beyond free time" value={exclusions} onChange={(e) => setExclusions(e.target.value)} /></div>
             </div>
           </Card>
         </div>

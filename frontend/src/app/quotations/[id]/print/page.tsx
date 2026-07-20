@@ -18,8 +18,11 @@ interface PrintQuote {
   id: string; quoteNumber: string; quoteDate: string; validityDate: string | null;
   status: string; currency: string; remark: string | null;
   subject: string | null; yourRef: string | null; attn: string | null;
-  pol: string | null; pod: string | null; shipmentType: string | null;
-  goods: string | null; shippingTerm: string | null; paymentTerm: string | null;
+  pol: string | null; pod: string | null; finalDestination: string | null;
+  modeOfTransport: string | null; shipmentType: string | null; carrier: string | null;
+  transitTime: string | null; freeTime: string | null;
+  goods: string | null; cargoWeight: string | null; cargoVolume: string | null;
+  shippingTerm: string | null; paymentTerm: string | null; exclusions: string | null;
   subtotalSell: string; discountAmt: string; serviceChargePct: string; miscCharge: string;
   taxPct: string; taxAmt: string; sellingPrice: string;
   customer: { companyName: string; address: string | null; phone: string | null; email: string | null; pic: string | null; paymentTerm: string | null };
@@ -110,9 +113,15 @@ export default function QuotationPrintPage({ params }: { params: { id: string } 
         <div className="grid grid-cols-2 gap-x-8 mt-2 border border-black p-2">
           <div><span className="inline-block w-28">POL</span>: {q.pol ?? '-'}</div>
           <div><span className="inline-block w-28">POD</span>: {q.pod ?? '-'}</div>
-          <div><span className="inline-block w-28">Shipment Type</span>: {q.shipmentType ?? '-'}</div>
-          {q.goods && <div><span className="inline-block w-28">Goods</span>: {q.goods}</div>}
-          {q.shippingTerm && <div><span className="inline-block w-28">Shipping Term</span>: {q.shippingTerm}</div>}
+          {q.finalDestination && <div><span className="inline-block w-28">Final Dest.</span>: {q.finalDestination}</div>}
+          {q.modeOfTransport && <div><span className="inline-block w-28">Mode</span>: {q.modeOfTransport}</div>}
+          <div><span className="inline-block w-28">Service Type</span>: {q.shipmentType ?? '-'}</div>
+          {q.shippingTerm && <div><span className="inline-block w-28">Incoterm</span>: {q.shippingTerm}</div>}
+          <div><span className="inline-block w-28">Carrier</span>: {q.carrier || 'TBA'}</div>
+          <div><span className="inline-block w-28">Transit Time</span>: {q.transitTime || 'TBA'}</div>
+          {q.freeTime && <div><span className="inline-block w-28">Free Time</span>: {q.freeTime}</div>}
+          {q.goods && <div><span className="inline-block w-28">Commodity</span>: {q.goods}</div>}
+          {(q.cargoWeight || q.cargoVolume) && <div><span className="inline-block w-28">Cargo</span>: {[q.cargoWeight, q.cargoVolume].filter(Boolean).join(' / ')}</div>}
           <div><span className="inline-block w-28">Payment Term</span>: {q.paymentTerm ?? q.customer.paymentTerm ?? '-'}</div>
           <div><span className="inline-block w-28">Validity Date</span>: <span className="font-semibold">{dmy(q.validityDate)}</span></div>
         </div>
@@ -174,6 +183,14 @@ export default function QuotationPrintPage({ params }: { params: { id: string } 
             <tr className="text-[12px]"><td className="pr-4 font-bold">Total (Inclusive of Tax)</td><td className="pr-1">:</td><td className="pr-2 font-bold">{ccy}</td><td className="text-right font-bold border-t border-black">{n2(q.sellingPrice)}</td></tr>
           </tbody></table>
         </div>
+
+        {/* ── Exclusions (if any) ── */}
+        {q.exclusions && (
+          <div className="mt-3">
+            <div className="font-semibold">EXCLUSIONS :</div>
+            <div className="whitespace-pre-line">{q.exclusions}</div>
+          </div>
+        )}
 
         {/* ── Remark + closing ── */}
         <div className="mt-3">
