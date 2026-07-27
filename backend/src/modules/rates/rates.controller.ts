@@ -1,14 +1,18 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Express } from 'express';
 import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
-import { CompareRatesDto, CreateRateDto, ListRatesDto, UpdateRateDto } from './rates.dto';
+<<<<<<< HEAD
+import { CompareRatesDto, CreateRateDto, ListRatesDto, UpdateRateDto, ImportRatesDto } from './rates.dto';
 import { RatesService } from './rates.service';
+import { ExcelImporterService } from './excel-importer.service';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('rates')
 export class RatesController {
-  constructor(private rates: RatesService) {}
+  constructor(private rates: RatesService, private importer: ExcelImporterService) {}
 
   @Get() @RequirePermission('rates.read')
   list(@Query() dto: ListRatesDto) {
@@ -20,6 +24,19 @@ export class RatesController {
 
   @Post() @RequirePermission('rates.write')
   create(@Body() dto: CreateRateDto) { return this.rates.create(dto); }
+
+  @Post('import') @RequirePermission('rates.write') @UseInterceptors(FileInterceptor('file'))
+  async importRates(
+    @UploadedFile() file: any,
+    @Query('vendorId') vendorId: string,
+    @Query('effectiveDate') effectiveDate?: string,
+  ) {
+    return this.importer.importRates(
+      file.buffer,
+      vendorId,
+      effectiveDate ? new Date(effectiveDate) : new Date(),
+    );
+  }
 
   @Patch(':id') @RequirePermission('rates.write')
   update(@Param('id') id: string, @Body() dto: UpdateRateDto) { return this.rates.update(id, dto); }
