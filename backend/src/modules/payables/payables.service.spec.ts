@@ -65,9 +65,10 @@ function makeService(w: World) {
   const seq = { next: jest.fn(async () => 'BILL-2026-0001') };
   const audit = { log: jest.fn(async () => undefined) };
   const fx = {
-    converter: jest.fn(async () => ({
-      toBase: (amount: number) => amount, missing: [], baseCurrency: 'MYR',
+    historicalConverter: jest.fn(async () => ({
+      toBaseAt: (amount: number) => amount, missing: new Set<string>(), baseCurrency: 'MYR',
     })),
+    warning: jest.fn(() => null),
   };
   const service = new PayablesService(prisma as never, seq as never, audit as never, fx as never);
   return { service, prisma, tx, writes, audit, forbidden };
@@ -103,6 +104,32 @@ describe('Duplicate vendor invoice protection', () => {
       duplicate: { billNumber: 'BILL-2026-0002' },
     });
     await expect(service.approve('b1')).rejects.toThrow(ConflictException);
+  });
+
+  // Sprint 03A / H-1 — a VOID bill must release its number so the documented
+  // correction workflow (create -> approve -> void -> re-enter) can run.
+  it('excludes VOID bills from the duplicate check, so a voided number can be re-entered', async () => {
+    const { service, prisma } = makeService({ vendor, duplicate: null });
+    await service.create({ vendorId: 'v1', vendorInvoiceNo: 'INV-001', items: oneLine });
+    const where = (prisma.vendorBill.findFirst as jest.Mock).mock.calls[0][0].where;
+    expect(where).toMatchObject({ vendorId: 'v1', vendorInvoiceNo: 'INV-001', status: { not: 'VOID' } });
+  });
+
+  it('still blocks a duplicate against a live (non-VOID) bill', async () => {
+    const { service } = makeService({ vendor, duplicate: { billNumber: 'BILL-2026-0001' } });
+    await expect(
+      service.create({ vendorId: 'v1', vendorInvoiceNo: 'INV-001', items: oneLine }),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('applies the same VOID exclusion when editing a DRAFT bill', async () => {
+    const { service, prisma } = makeService({
+      bill: { id: 'b1', status: 'DRAFT', vendorId: 'v1', vendorInvoiceNo: 'INV-OLD', taxPct: 0 },
+      duplicate: null,
+    });
+    await service.update('b1', { vendorInvoiceNo: 'INV-NEW' });
+    const where = (prisma.vendorBill.findFirst as jest.Mock).mock.calls[0][0].where;
+    expect(where.status).toEqual({ not: 'VOID' });
   });
 });
 
@@ -273,13 +300,24 @@ describe('Payment reversal (PO Decision 1)', () => {
 
 // Phase B — job cost variance. Read-only: four independent values, never a write.
 describe('Job cost variance (Phase B)', () => {
-  function makeVarianceService(job: Record<string, unknown> | null, lines: unknown[]) {
+  function makeVarianceService(job: Record<string, unknown> | null, lines: unknown[], missingCurrencies?: string[]) {
     const forbidden = { update: jest.fn(), updateMany: jest.fn(), create: jest.fn(), upsert: jest.fn(), delete: jest.fn() };
     const prisma = {
       job: { ...forbidden, findFirst: jest.fn(async () => job) },
       vendorBillItem: { findMany: jest.fn(async () => lines) },
     };
-    const fx = { converter: jest.fn(async () => ({ toBase: (a: number, c?: string) => (c === 'USD' ? a * 4 : a), missing: [], baseCurrency: 'MYR' })) };
+    const missing = new Set<string>(missingCurrencies ?? []);
+    const fx = {
+      historicalConverter: jest.fn(async () => ({
+        // USD is worth 4 before 2026-06-01 and 5 from then on, so tests can
+        // prove the BILL DATE selects the rate (H-2).
+        toBaseAt: (a: number, c: string | undefined, on: Date) =>
+          c === 'USD' ? a * (on >= new Date('2026-06-01') ? 5 : 4) : a,
+        missing,
+        baseCurrency: 'MYR',
+      })),
+      warning: jest.fn(() => (missing.size ? `No exchange rate configured to MYR for: ${[...missing].join(', ')}` : null)),
+    };
     const service = new PayablesService(prisma as never, { next: jest.fn() } as never, { log: jest.fn() } as never, fx as never);
     return { service, forbidden, prisma };
   }
@@ -288,9 +326,12 @@ describe('Job cost variance (Phase B)', () => {
     id: 'j1', jobNumber: 'JOB-2026-0001', currency: 'MYR', status: 'IN_PROGRESS',
     actualCost: 1000, quotation: { totalCost: 1000, currency: 'MYR' },
   };
-  const line = (amount: number, opts: Partial<{ taxExempt: boolean; taxPct: number; currency: string; billId: string }> = {}) => ({
+  const line = (amount: number, opts: Partial<{ taxExempt: boolean; taxPct: number; currency: string; billId: string; billDate: Date }> = {}) => ({
     amount, taxExempt: opts.taxExempt ?? false,
-    bill: { id: opts.billId ?? 'b1', currency: opts.currency ?? 'MYR', taxPct: opts.taxPct ?? 0, billDate: new Date('2026-07-01') },
+    bill: {
+      id: opts.billId ?? 'b1', currency: opts.currency ?? 'MYR', taxPct: opts.taxPct ?? 0,
+      billDate: opts.billDate ?? new Date('2026-07-01'),
+    },
   });
 
   it('reports the four values and computes variance as billed − recorded', async () => {
@@ -309,9 +350,46 @@ describe('Job cost variance (Phase B)', () => {
   });
 
   it('converts a foreign-currency bill into the job currency', async () => {
+    // Bill dated 2026-07-01, so the stub's post-June USD rate (5.0) applies.
     const { service } = makeVarianceService(baseJob, [line(100, { currency: 'USD' })]);
     const v = await service.jobCostVariance('j1');
-    expect(v.billedTotal).toBe(400); // USD 100 at 4.0
+    expect(v.billedTotal).toBe(500);
+  });
+
+  // Sprint 03A / H-2 — the rate is chosen by each bill's OWN date, so a
+  // variance does not shift when newer rates are added.
+  it('uses the rate in effect on the bill date, not the latest rate', async () => {
+    const { service } = makeVarianceService(baseJob, [
+      line(100, { currency: 'USD', billDate: new Date('2026-03-01') }), // pre-June rate 4.0
+    ]);
+    expect((await service.jobCostVariance('j1')).billedTotal).toBe(400);
+  });
+
+  it('prices two bills of the same currency at their own dates', async () => {
+    const { service } = makeVarianceService(baseJob, [
+      line(100, { currency: 'USD', billDate: new Date('2026-03-01'), billId: 'b1' }), // 400
+      line(100, { currency: 'USD', billDate: new Date('2026-09-01'), billId: 'b2' }), // 500
+    ]);
+    const v = await service.jobCostVariance('j1');
+    expect(v.billedTotal).toBe(900);
+    expect(v.billCount).toBe(2);
+  });
+
+  it('suppresses the variance and surfaces a warning when a rate is missing', async () => {
+    const { service } = makeVarianceService(baseJob, [line(100, { currency: 'EUR' })], ['EUR']);
+    const v = await service.jobCostVariance('j1');
+    expect(v.fxIncomplete).toBe(true);
+    expect(v.fxWarning).toMatch(/No exchange rate configured to MYR for: EUR/);
+    // Never present an unconverted mix as a comparable figure.
+    expect(v.variance).toBeNull();
+  });
+
+  it('reports no FX warning and a real variance when every rate resolves', async () => {
+    const { service } = makeVarianceService(baseJob, [line(1200)]);
+    const v = await service.jobCostVariance('j1');
+    expect(v.fxWarning).toBeNull();
+    expect(v.fxIncomplete).toBe(false);
+    expect(v.variance).toBe(200);
   });
 
   it('reports variance as null (not 0) when no bills are allocated', async () => {

@@ -62,6 +62,16 @@ Working list maintained at the end of each sprint. Backlog priorities live in
   M-7 (generalized attachment model — **decided** in ADR §7: polymorphic `attachments`; build deferred by PO Decision 5),
   L-1 … L-8.
 
+## ARCHITECTURE_REVIEW_SPRINT03 remediation status
+
+- [x] **H-1 and H-2 fixed in Sprint 03A** (2026-07-28), plus the approved P2002 → 409 mapping — see `SPRINT_03A_REPORT.md`.
+- [ ] Open, in the review's recommended order: M-9 (clearable header job), M-2 (one allocation predicate shared by the list filter and the variance), M-1 (unallocated spend visibility), M-8 (proportional tax allocation + AP/job reconciliation), M-3 (concurrency tests + live check for payments and reversals), M-7 (CI regression for the ownership boundary), M-5 (down migration or amend the plan), M-6 (state the `jobs.read` exposure decision), L-1 … L-9.
+
+## Newly logged during Sprint 03A
+
+- [ ] **P&L is not historically stable.** `PnlService` converts job revenue/cost with `FxService.converter()` (latest rate), so past periods re-value whenever a rate is added — the same class of problem H-2 fixed for AP. Demonstrated accidentally during Sprint 03A verification: inserting one test rate moved the P&L by exactly `180 × (9.99 − 4.45)` on cost. `FxService.historicalConverter()` now exists and is the ready-made fix; the question is which date each figure should use (job date? invoice date?) — a Product Owner decision, not a code change.
+- [ ] **Intermittent test flake diagnosed, not fixed.** One run in five failed on `rate-sheet.parser.spec.ts` (1 of 242) and never reproduced in isolation or across four further full runs. Most likely the exceljs round-trip test (~1.5 s alone) exceeding Jest's 5 s default under parallel load. Fix is a per-test timeout; out of Sprint 03A's approved scope.
+
 ## Sprint 03 follow-ups (deferred by design)
 
 - [ ] **Vendor bill attachments** — deferred by PO Decision 5, so an approved payable has no scanned vendor invoice in the system. Interim: job-linked bills can use the existing Job Documents feature; standalone bills have no home. Design settled in `AP_ARCHITECTURE_DECISION.md` §7 (polymorphic `attachments`). **Depends on the R2 cutover above.**

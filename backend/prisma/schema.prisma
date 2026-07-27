@@ -924,9 +924,16 @@ model VendorBill {
   items    VendorBillItem[]
   payments VendorPayment[]
 
-  // Duplicate-bill control, scoped per vendor: two different carriers may both
-  // legitimately issue "INV-001".
-  @@unique([vendorId, vendorInvoiceNo])
+  // Duplicate-bill control is a PARTIAL unique index, not a plain @@unique:
+  //
+  //   UNIQUE (vendorId, vendorInvoiceNo) WHERE status <> 'VOID'
+  //
+  // Scoped per vendor because two carriers may both legitimately issue
+  // "INV-001", and scoped to live bills because voiding a mis-keyed bill must
+  // release its number so the correct one can be re-entered (Sprint 03A / H-1).
+  // Prisma cannot express a partial index, so it lives in the migration
+  // `20260728..._vendor_bill_void_releases_invoice_no` and is intentionally
+  // absent here — do not "restore" @@unique, that would re-break re-entry.
   @@index([vendorId])
   @@index([status])
   @@index([dueDate])

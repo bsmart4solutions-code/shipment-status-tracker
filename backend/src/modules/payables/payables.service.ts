@@ -64,10 +64,18 @@ export class PayablesService {
     if (found.length !== unique.length) throw new NotFoundException('One or more referenced jobs do not exist');
   }
 
-  /** Duplicate control: (vendorId, vendorInvoiceNo) is unique per vendor. */
+  /**
+   * Duplicate control: (vendorId, vendorInvoiceNo) is unique per vendor among
+   * LIVE bills. VOID bills are excluded so voiding a mis-keyed bill releases
+   * its number and the correct one can be re-entered (H-1) — matching the
+   * partial unique index that backs this check in the database.
+   */
   private async assertNoDuplicate(vendorId: string, vendorInvoiceNo: string, excludeBillId?: string) {
     const clash = await this.prisma.vendorBill.findFirst({
-      where: { vendorId, vendorInvoiceNo, ...(excludeBillId ? { id: { not: excludeBillId } } : {}) },
+      where: {
+        vendorId, vendorInvoiceNo, status: { not: 'VOID' },
+        ...(excludeBillId ? { id: { not: excludeBillId } } : {}),
+      },
       select: { billNumber: true },
     });
     if (clash) {
@@ -424,12 +432,12 @@ export class PayablesService {
       },
     });
 
-    const fx = await this.fx.converter();
+    // H-2: convert at each bill's OWN bill date, not the latest rate, so a
+    // variance computed today still reads the same after newer rates are
+    // added. A currency with no rate effective by then is recorded in
+    // `missing` — never silently treated as 1:1 (see fxWarning below).
+    const fx = await this.fx.historicalConverter();
     const jobCurrency = job.currency || fx.baseCurrency;
-    // Convert via base currency: bill ccy -> base -> job ccy. Rates are the
-    // current table values (no revaluation — PO Decision 12).
-    const jobUnit = fx.toBase(1, jobCurrency) || 1;
-    const toJobCcy = (amount: number, currency: string) => fx.toBase(amount, currency) / jobUnit;
 
     let billed = 0;
     const billIds = new Set<string>();
@@ -438,11 +446,16 @@ export class PayablesService {
       const amount = Number(l.amount);
       const taxPct = Number(l.bill.taxPct);
       const lineTax = l.taxExempt ? 0 : amount * (taxPct / 100); // SST is a cost
-      billed += toJobCcy(amount + lineTax, l.bill.currency);
+      const on = l.bill.billDate;
+      // bill currency -> base -> job currency, both legs resolved at bill date.
+      const inBase = fx.toBaseAt(amount + lineTax, l.bill.currency, on);
+      const jobUnit = fx.toBaseAt(1, jobCurrency, on) || 1;
+      billed += inBase / jobUnit;
       billIds.add(l.bill.id);
       if (!latestBillDate || l.bill.billDate > latestBillDate) latestBillDate = l.bill.billDate;
     }
     const billedTotal = r2(billed);
+    const fxWarning = this.fx.warning(fx);
 
     const recordedCost = Number(job.actualCost);
     const estimatedCost = job.quotation ? Number(job.quotation.totalCost) : null;
@@ -456,8 +469,13 @@ export class PayablesService {
       recordedCost,
       billedTotal,
       // Absent measurement and a measured zero are different facts: with no
-      // bills the variance is null, never 0.00.
-      variance: billIds.size > 0 ? r2(billedTotal - recordedCost) : null,
+      // bills the variance is null, never 0.00. It is also null when a rate
+      // was missing — an unconverted mix of currencies must never be presented
+      // as a comparable figure (H-2).
+      variance: billIds.size > 0 && !fxWarning ? r2(billedTotal - recordedCost) : null,
+      // Reuses the existing FX warning mechanism (same text the P&L surfaces).
+      fxWarning,
+      fxIncomplete: fxWarning !== null,
       billCount: billIds.size,
       latestBillDate,
       recordedIsUnconfirmed: estimatedCost !== null && r2(recordedCost) === r2(estimatedCost),

@@ -23,6 +23,7 @@ interface CostVariance {
   estimatedCost: number | null; recordedCost: number; billedTotal: number;
   variance: number | null; billCount: number; latestBillDate: string | null;
   recordedIsUnconfirmed: boolean; billsMayBeOutstanding: boolean;
+  fxWarning: string | null; fxIncomplete: boolean;
 }
 
 export function JobCostPanel({ jobId, jobNumber, onClose }: { jobId: string; jobNumber: string; onClose: () => void }) {
@@ -42,6 +43,16 @@ export function JobCostPanel({ jobId, jobNumber, onClose }: { jobId: string; job
 
         {data && (
           <>
+            {data.fxWarning && (
+              <div className="rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/40 dark:border-red-900 p-3 text-sm text-red-700 dark:text-red-300">
+                <span className="font-semibold">Exchange rate missing.</span> {data.fxWarning}
+                <div className="mt-1 text-[12px]">
+                  The variance is hidden because the billed total mixes currencies that could not be converted.
+                  Add the missing rate under Settings, then reopen this panel.
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <Card className="!p-3">
                 <div className="text-xs text-gray-500">Estimated Cost</div>
@@ -94,6 +105,11 @@ export function JobCostPanel({ jobId, jobNumber, onClose }: { jobId: string; job
               {data.billCount === 0 && (
                 <p className="text-gray-500">No vendor bills are allocated to this job yet, so there is nothing to compare.</p>
               )}
+              {data.fxIncomplete && data.billCount > 0 && (
+                <p className="text-red-500">
+                  The vendor bill total above includes amounts that could not be converted, so it is not comparable to the recorded cost.
+                </p>
+              )}
               {data.billsMayBeOutstanding && data.billCount > 0 && (
                 <p className="text-gray-500">
                   This job is {data.jobStatus} — carrier invoices often arrive after delivery, so the billed total may still grow.
@@ -107,8 +123,8 @@ export function JobCostPanel({ jobId, jobNumber, onClose }: { jobId: string; job
             </div>
 
             <p className="text-[11px] text-gray-400">
-              All figures in {data.currency}. Foreign-currency bills are converted at their bill-date rate; no revaluation is applied.
-              Vendor bills never change the recorded cost or this job&apos;s profit.
+              All figures in {data.currency}. Each foreign-currency bill is converted using the rate in effect on its own bill date,
+              so these figures do not change when newer rates are added. Vendor bills never change the recorded cost or this job&apos;s profit.
             </p>
           </>
         )}

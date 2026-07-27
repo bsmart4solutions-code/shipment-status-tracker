@@ -3,6 +3,24 @@
 All notable changes to the Shipment Status Tracker (Freight ERP) are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); sprint-based versioning.
 
+## [Sprint 03A] — 2026-07-28 — AP remediation (H-1, H-2) + P2002 mapping
+
+### Fixed
+- **H-1 — voiding a bill no longer burns its vendor invoice number.** Duplicate protection became a partial unique index (`WHERE status <> 'VOID'`) and the service check now excludes VOID, so the documented correction workflow — create → approve → void → **re-enter the same number** — finally works. Protection for live bills is unchanged: two active bills can still never share a vendor invoice number.
+- **H-2 — job cost variance now converts at each bill's own bill date**, not the latest rate, so a variance no longer shifts when newer rates are entered. Verified live: after inserting a new USD rate, a March bill kept its original value while an August bill picked up the new one.
+- **H-2 — a missing exchange rate is never silently treated as 1:1.** The variance now returns `fxWarning` (the same message the P&L surfaces) plus `fxIncomplete`, and **suppresses the variance** rather than presenting a figure built from unconverted amounts. The cost panel shows this prominently, and its footer now describes what the code actually does.
+
+### Added
+- `FxService.historicalConverter()` — resolves the rate in effect on a given date. Shares `missing`/`baseCurrency` with the existing converter so `warning()` serves both; there is one FX warning mechanism, not two.
+- **Prisma P2002 → HTTP 409** with actionable messages in the global exception filter (previously a 500). Column names map to plain language and named partial indexes map to targeted guidance. Benefits every module with a unique constraint.
+
+### Tests
+- +23 tests (suite 242/242). One additive migration; no existing endpoint changed; AR, job cost, job profit and P&L verified unchanged.
+
+See `SPRINT_03A_REPORT.md`.
+
+---
+
 ## [Sprint 03] — 2026-07-28 — Accounts Payable (P0-3)
 
 ### Added
