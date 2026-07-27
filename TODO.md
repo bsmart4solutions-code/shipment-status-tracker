@@ -17,6 +17,17 @@ Working list maintained at the end of each sprint. Backlog priorities live in
   against that. Files: `quotations.controller.ts`, `invoices.controller.ts`,
   `jobs.controller.ts` (audit the rest of the controllers for the same pattern).
 
+- [ ] **Winston console formatter prints `logger.error('message')` as a blank line.**
+  Found during Sprint 02A live verification. In `common/logger/winston.logger.ts`
+  the console format returns `` `${timestamp} ${level}${ctx} ${stack || message}` ``;
+  for a plain string error nest-winston supplies `stack = [null]`, which is
+  truthy and stringifies to `""`, so the message is swallowed. Affects **every**
+  `.error(string)` call app-wide, not just storage. The message is still written
+  correctly to `logs/error.log` and `logs/combined.log`, so nothing is lost —
+  but anyone watching the console (Render's log stream included) sees an empty
+  error line. **Fix:** prefer `message` and append `stack` only when it is a
+  non-empty string. Out of Sprint 02A's approved scope.
+
 ## Sprint 01 follow-ups (deferred by design)
 
 - [ ] PDF generation + email sending for credit/debit notes (invoice email exists; reuse it).
@@ -31,14 +42,33 @@ Working list maintained at the end of each sprint. Backlog priorities live in
 
 ## Sprint 02 follow-ups
 
-- [ ] **Production R2 cutover (user action):** create the R2 bucket + scoped API token, set the five `S3_*`/`STORAGE_DRIVER` env vars in Render (`STORAGE.md` §3). Until then production stays on the ephemeral local driver.
+- [ ] ⚠️ **Production R2 cutover (user action — now blocking deploys):** create the
+  R2 bucket + scoped API token and set `S3_ENDPOINT`, `S3_BUCKET`,
+  `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` in Render (`STORAGE.md` §3).
+  Since Sprint 02A a production deploy with `STORAGE_DRIVER=s3` and missing
+  credentials **fails at startup by design** (the previous release keeps
+  serving). To deploy before the cutover, set `STORAGE_DRIVER=local`
+  explicitly — an auditable choice, and documents remain ephemeral until R2 is live.
 - [ ] Consider `rclone` bucket backup sync + restore drill (`STORAGE.md` §10).
 - [ ] Presigned-URL download path when the Customer Portal lands (`STORAGE.md` §11).
 
+## ARCHITECTURE_REVIEW_SPRINT02 remediation status
+
+- [x] **H-1 fixed in Sprint 02A** (2026-07-27) — see `SPRINT_02A_REPORT.md`.
+- [ ] Open, in the review's recommended order: M-4 (enable R2 object versioning —
+  bucket config, zero code), M-3 (delete ordering + orphan sweep), M-5
+  (`ContentType` on put, before presigned URLs), M-2 (workbook decompression
+  guard), M-1 (boot-time bucket probe), M-6 (MinIO CI integration spec),
+  M-7 (generalized attachment model — belongs in the Sprint 03 AP plan),
+  L-1 … L-8.
+
 ## Next sprint candidate (needs Product Owner approval first)
 
-- Sprint 02 is **not started** — per process, a `SPRINT_02_PLAN.md` must be
-  produced and explicitly approved before any implementation. Leading P0
-  candidates by value/dependency order: P0-7 (credit-limit enforcement — S),
-  P0-5 (persistent document storage — M), P0-6 (replace `xlsx` — M),
-  P0-3 (AP — L), P0-4 (booking + milestones — L), P0-8 (AR automation + SOA — M).
+- **Sprint 03 is not started.** Per process, a `SPRINT_03_PLAN.md` must be
+  produced and explicitly approved before any implementation. The expected
+  subject is **P0-3 Accounts Payable**, and its plan must open with two model
+  decisions it already owes: the vendor credit/debit-note model
+  (`ARCHITECTURE_REVIEW.md` M7) and the generalized document-attachment model
+  (`ARCHITECTURE_REVIEW_SPRINT02.md` M-7). Other P0 candidates: P0-7
+  (credit-limit enforcement — S), P0-4 (booking + milestones — L),
+  P0-8 (AR automation + SOA — M).

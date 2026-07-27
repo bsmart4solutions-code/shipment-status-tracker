@@ -3,6 +3,23 @@
 All notable changes to the Shipment Status Tracker (Freight ERP) are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); sprint-based versioning.
 
+## [Sprint 02A] — 2026-07-27 — Production storage configuration gate (H-1)
+
+### Fixed
+- **H-1 — production can no longer silently fall back to ephemeral local storage.** With `NODE_ENV=production` and `STORAGE_DRIVER=s3`, the four `S3_*` variables are now required: a missing or blank value aborts startup (exit 1) with a message naming the variable, so a misconfigured deploy fails loudly instead of writing documents to a disk the next deploy erases. `FileStorageService` throws in the same situation as defence in depth.
+- **Development is unchanged** — an incomplete S3 configuration still falls back to the local driver and boots.
+
+### Added
+- `GET /api/health` reports the active storage driver at `checks.storageDriver` (`"local"` in production is now alertable). Additive field only; `/health/live`, `/health/ready`, `/health/metrics` unchanged.
+
+### Tests
+- +13 regression tests (suite 153/153): production startup validation, development fallback, health driver reporting.
+
+### Operational note
+- **Enter the Cloudflare R2 credentials in Render before the next production deploy** (`STORAGE.md` §3) — a production deploy with `STORAGE_DRIVER=s3` and missing credentials now fails by design.
+
+---
+
 ## [Sprint 02] — 2026-07-21 — Data Durability, Security Dependency & Hardening
 
 ### Added

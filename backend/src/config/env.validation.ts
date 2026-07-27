@@ -1,5 +1,5 @@
 import { plainToInstance } from 'class-transformer';
-import { IsEnum, IsIn, IsNotEmpty, IsNumber, IsString, IsOptional, validate } from 'class-validator';
+import { IsEnum, IsIn, IsNotEmpty, IsNumber, IsString, IsOptional, validate, ValidateIf } from 'class-validator';
 
 export enum Environment {
   Development = 'development',
@@ -48,21 +48,31 @@ export class EnvironmentVariables {
   @IsOptional()
   STORAGE_DRIVER: string = 'local';
 
+  // H-1 (ARCHITECTURE_REVIEW_SPRINT02): in production with STORAGE_DRIVER=s3
+  // the four S3 credentials are REQUIRED — a missing/blank value must fail
+  // startup rather than silently fall back to the ephemeral local disk.
+  // Outside production (or on the local driver) they stay optional so
+  // development needs zero storage configuration.
+
   // e.g. https://<account-id>.r2.cloudflarestorage.com
+  @ValidateIf(requiresS3Config)
   @IsString()
-  @IsOptional()
+  @IsNotEmpty({ message: 'S3_ENDPOINT is required in production when STORAGE_DRIVER=s3 (refusing to fall back to ephemeral local storage)' })
   S3_ENDPOINT?: string;
 
+  @ValidateIf(requiresS3Config)
   @IsString()
-  @IsOptional()
+  @IsNotEmpty({ message: 'S3_BUCKET is required in production when STORAGE_DRIVER=s3 (refusing to fall back to ephemeral local storage)' })
   S3_BUCKET?: string;
 
+  @ValidateIf(requiresS3Config)
   @IsString()
-  @IsOptional()
+  @IsNotEmpty({ message: 'S3_ACCESS_KEY_ID is required in production when STORAGE_DRIVER=s3 (refusing to fall back to ephemeral local storage)' })
   S3_ACCESS_KEY_ID?: string;
 
+  @ValidateIf(requiresS3Config)
   @IsString()
-  @IsOptional()
+  @IsNotEmpty({ message: 'S3_SECRET_ACCESS_KEY is required in production when STORAGE_DRIVER=s3 (refusing to fall back to ephemeral local storage)' })
   S3_SECRET_ACCESS_KEY?: string;
 
   // R2 expects "auto" (the default); AWS S3 wants a real region.
@@ -73,6 +83,11 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   LOG_LEVEL: string = 'debug';
+}
+
+/** True when the S3 credentials are mandatory: production + s3 driver. */
+function requiresS3Config(env: EnvironmentVariables): boolean {
+  return env.NODE_ENV === Environment.Production && env.STORAGE_DRIVER === 's3';
 }
 
 export async function validateEnv(): Promise<EnvironmentVariables> {

@@ -124,9 +124,30 @@ describe('FileStorageService driver selection', () => {
     expect(new FileStorageService().driverName).toBe('s3');
   });
 
-  it('falls back to local (and keeps the app booting) when s3 config is incomplete', () => {
+  it('falls back to local (and keeps the app booting) when s3 config is incomplete in development', () => {
+    process.env.NODE_ENV = 'development';
     process.env.STORAGE_DRIVER = 's3';
     delete process.env.S3_ENDPOINT;
     expect(new FileStorageService().driverName).toBe('local');
+  });
+
+  // H-1 regression: production must never silently fall back to the
+  // ephemeral local disk — defence-in-depth behind env.validation.ts.
+  it('REFUSES to construct in production when s3 config is incomplete', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.STORAGE_DRIVER = 's3';
+    delete process.env.S3_ENDPOINT;
+    delete process.env.S3_BUCKET;
+    expect(() => new FileStorageService()).toThrow(/refusing to start on ephemeral local storage in production/);
+  });
+
+  it('still constructs the s3 driver in production when fully configured', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.STORAGE_DRIVER = 's3';
+    process.env.S3_ENDPOINT = 'https://acc.r2.cloudflarestorage.com';
+    process.env.S3_BUCKET = 'erp-documents';
+    process.env.S3_ACCESS_KEY_ID = 'key';
+    process.env.S3_SECRET_ACCESS_KEY = 'secret';
+    expect(new FileStorageService().driverName).toBe('s3');
   });
 });

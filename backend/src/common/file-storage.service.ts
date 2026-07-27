@@ -39,9 +39,17 @@ export class FileStorageService {
       if (endpoint && bucket && accessKeyId && secretAccessKey) {
         return new S3StorageDriver({ endpoint, bucket, accessKeyId, secretAccessKey, region: process.env.S3_REGION });
       }
-      // Fail safe, not silent: boot continues on local so the app stays usable,
-      // but the log makes the misconfiguration unmissable.
-      this.logger.error('STORAGE_DRIVER=s3 but S3_ENDPOINT/S3_BUCKET/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY are incomplete — falling back to local storage');
+      // H-1: production must NEVER silently fall back to the ephemeral local
+      // disk — that re-creates the exact data-loss condition P0-5 removed.
+      // env.validation.ts already refuses to boot in this state; this throw is
+      // defence-in-depth in case the service is ever constructed another way.
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error(
+          'STORAGE_DRIVER=s3 but S3_ENDPOINT/S3_BUCKET/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY are incomplete — refusing to start on ephemeral local storage in production',
+        );
+      }
+      // Development keeps the graceful fallback: loud log, app stays usable.
+      this.logger.error('STORAGE_DRIVER=s3 but S3_ENDPOINT/S3_BUCKET/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY are incomplete — falling back to local storage (development only)');
     }
     return new LocalStorageDriver(process.env.UPLOAD_DIR || './uploads');
   }

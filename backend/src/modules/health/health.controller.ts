@@ -1,5 +1,6 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
+import { FileStorageService } from '../../common/file-storage.service';
 import { PrismaService } from '../../common/prisma.service';
 import { MetricsService } from './metrics.service';
 
@@ -18,7 +19,7 @@ import { MetricsService } from './metrics.service';
 @SkipThrottle()
 @Controller('health')
 export class HealthController {
-  constructor(private prisma: PrismaService, private metrics: MetricsService) {}
+  constructor(private prisma: PrismaService, private metrics: MetricsService, private storage: FileStorageService) {}
 
   private async pingDb(): Promise<{ database: 'healthy' | 'unhealthy'; dbLatencyMs: number | null }> {
     try {
@@ -38,7 +39,10 @@ export class HealthController {
       status: database === 'healthy' ? 'ok' : 'degraded',
       timestamp: new Date().toISOString(),
       uptimeSeconds: Math.round(process.uptime()),
-      checks: { database, dbLatencyMs },
+      // storageDriver makes the active binary-storage backend monitorable
+      // (H-1): "local" showing up in production means documents are on the
+      // ephemeral disk — alert on it.
+      checks: { database, dbLatencyMs, storageDriver: this.storage.driverName },
       memory: { rssMb: Math.round(mem.rss / 1048576), heapUsedMb: Math.round(mem.heapUsed / 1048576) },
     };
   }
