@@ -35,3 +35,8 @@ export class CompareRatesDto {
   @IsOptional() @IsIn(['cost', 'rating', 'preferred']) sort?: 'cost' | 'rating' | 'preferred';
   @IsOptional() includeExpired?: string; // 'true' -> historical view
 }
+
+export class ImportRatesDto {
+  @IsUUID() vendorId: string;
+  @IsOptional() @IsDateString() effectiveDate?: string;
+}
