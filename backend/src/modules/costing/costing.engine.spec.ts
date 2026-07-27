@@ -1,4 +1,4 @@
-import { computeItem, computeQuotation } from './costing.engine';
+import { computeItem, computeQuotation, chargeableWM } from './costing.engine';
 
 describe('Costing engine — items', () => {
   it('applies markup to unit cost', () => {
@@ -77,5 +77,86 @@ describe('Costing engine — quotation totals', () => {
     const t = computeQuotation([], { taxPct: 8 });
     expect(t.sellingPrice).toBe(0);
     expect(t.gpPercent).toBe(0);
+  });
+});
+
+describe('Costing engine — LCL rebates & W/M', () => {
+  it('preserves negative freight (rebate) rates in cost', () => {
+    // ECU rebate: -45 cost on 1 CBM → should stay -45, not reset to 0
+    const r = computeItem({ quantity: 1, unitCost: -45, markupPct: 25 });
+    expect(r.totalCost).toBe(-45);
+    expect(r.unitSell).toBe(-33.75);
+    expect(r.grossProfit).toBe(11.25);
+  });
+
+  it('applies markup to rebate cost using absolute value', () => {
+    // -45 rebate + 25% markup = -45 + |−45| × 0.25 = -45 + 11.25 = -33.75 sell ✓
+    const r = computeItem({ quantity: 2, unitCost: -45, markupPct: 25 });
+    expect(r.unitSell).toBe(-33.75);
+    expect(r.totalSell).toBe(-67.5);
+    expect(r.grossProfit).toBe(r.totalSell - r.totalCost);
+    expect(r.grossProfit).toBe(22.5);
+  });
+
+  it('calculates meaningful GP% on rebate lines using absolute sell value', () => {
+    // -45 cost, -33.75 sell, +11.25 GP; GP% = 11.25 / |−33.75| × 100 = 33.33%
+    const r = computeItem({ quantity: 1, unitCost: -45, markupPct: 25 });
+    expect(r.gpPercent).toBeCloseTo(33.33, 1);
+  });
+
+  it('does not apply minimum charge when tariff does not publish one', () => {
+    // No minimumCharge specified → rawCost -45 should be preserved
+    const r = computeItem({ quantity: 1, unitCost: -45, minimumCharge: undefined, markupPct: 25 });
+    expect(r.totalCost).toBe(-45);
+  });
+
+  it('applies minimum charge only when explicitly provided', () => {
+    // Small qty × high rate < minimum → cost floors at minimum
+    const r = computeItem({ quantity: 0.5, unitCost: 100, minimumCharge: 50, markupPct: 20 });
+    expect(r.totalCost).toBe(50);
+    expect(r.totalSell).toBe(60);
+  });
+
+  it('back-computes markup on rebate cost as percentage of absolute value', () => {
+    // Cost -100, sell -75 → markup on |−100| = (-75 − (−100)) / 100 = 25%
+    const r = computeItem({ quantity: 1, unitCost: -100, unitSell: -75 });
+    expect(r.markupPct).toBe(25);
+  });
+
+  it('calculates chargeable W/M for LCL using weight and volume', () => {
+    // By volume: 5 CBM
+    // By weight: 2000 kg / 333 kg-per-CBM = 6.006 CBM
+    // Chargeable = max(5, 6.006) = 6.006 CBM
+    const wm = chargeableWM({ weightKg: 2000, volumeCbm: 5, weightRatio: 333 });
+    expect(wm).toBeCloseTo(6.006, 2);
+  });
+
+  it('defaults weight ratio to 1000 kg/CBM when not specified', () => {
+    // By volume: 2 CBM
+    // By weight: 2000 kg / 1000 = 2 CBM
+    // Chargeable = max(2, 2) = 2 CBM
+    const wm = chargeableWM({ weightKg: 2000, volumeCbm: 2 });
+    expect(wm).toBe(2);
+  });
+
+  it('volume-heavy shipment uses volume as chargeable W/M', () => {
+    // By volume: 10 CBM
+    // By weight: 1000 kg / 333 = 3.003 CBM
+    // Chargeable = max(10, 3.003) = 10 CBM
+    const wm = chargeableWM({ weightKg: 1000, volumeCbm: 10, weightRatio: 333 });
+    expect(wm).toBe(10);
+  });
+
+  it('weight-heavy shipment uses weight-derived units as chargeable W/M', () => {
+    // By volume: 2 CBM
+    // By weight: 2000 kg / 333 = 6.006 CBM
+    // Chargeable = max(2, 6.006) = 6.006 CBM
+    const wm = chargeableWM({ weightKg: 2000, volumeCbm: 2, weightRatio: 333 });
+    expect(wm).toBeCloseTo(6.006, 2);
+  });
+
+  it('handles zero shipment gracefully', () => {
+    const wm = chargeableWM({ weightKg: 0, volumeCbm: 0 });
+    expect(wm).toBe(0);
   });
 });

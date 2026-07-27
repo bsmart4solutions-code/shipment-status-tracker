@@ -95,10 +95,11 @@ export function computeItem(input: CostingItemInput): CostingItemResult {
   }
 
   // If the vendor minimum kicked in on cost, scale the sell floor the same way
-  // so a tiny shipment never sells below marked-up minimum.
+  // so a tiny shipment never sells below marked-up minimum. For rebates (negative
+  // costs/sells), allow negative totalSell unless a minimum explicitly overrides.
   const rawSell = qty * unitSell;
   const minSell = hasMin && minCharge > 0 && rawCost < minCharge ? minCharge * (1 + markupPct / 100) : 0;
-  const totalSell = r2(Math.max(rawSell, minSell));
+  const totalSell = r2(minSell > 0 ? Math.max(rawSell, minSell) : rawSell);
 
   const grossProfit = r2(totalSell - totalCost);
   const gpPercent = totalSell !== 0 ? r4((grossProfit / Math.abs(totalSell)) * 100) : 0;
