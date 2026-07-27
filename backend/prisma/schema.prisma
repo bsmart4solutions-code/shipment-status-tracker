@@ -152,6 +152,14 @@ enum RateType {
   PER_SHIPMENT
   PER_HOUR
   PER_DAY
+  PER_WM // per weight-or-measure (LCL): chargeable = max(CBM, KG / weightRatio)
+}
+
+// Some tariff lines are published without a bookable price
+enum RateAvailability {
+  AVAILABLE
+  ON_REQUEST
+  SUSPENDED
 }
 
 model VendorServiceRate {
@@ -166,8 +174,15 @@ model VendorServiceRate {
   state         String?
   rateType      RateType  @default(FIXED)
   currency      String    @default("MYR")
+  // LCL co-loader tariffs can be negative (rebate) — engine handles it
   cost          Decimal   @db.Decimal(14, 4)
   minimumCharge Decimal?  @db.Decimal(14, 2)
+  availability  RateAvailability @default(AVAILABLE)
+  viaPort       String? // e.g. DIRECT / SIN / PUS
+  transitDays   String? // published as text: "5", "10-12", "STI"
+  freightCollect Boolean?
+  weightRatio   Int? // kg per CBM for W/M, e.g. 333 (default 1000)
+  surcharges    Json? // [{code:"EFS", amount:3, currency:"USD", basis:"PER_WM"}]
   effectiveDate DateTime  @default(now())
   expiryDate    DateTime?
   remarks       String?
