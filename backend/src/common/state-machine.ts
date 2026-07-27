@@ -54,6 +54,36 @@ const ADJUSTMENT_EDGES: Record<AdjustmentStatus, Set<AdjustmentStatus>> = {
   CANCELLED: new Set(['CANCELLED']),
 };
 
+// Vendor bill lifecycle (AP). DRAFT is editable; APPROVED is the posting event
+// that makes the bill a payable; payments derive PARTIALLY_PAID / PAID; VOID
+// nullifies a bill that carries no payments. VOID (not CANCELLED) is the
+// accounting term for nullifying a posted payable — see
+// AP_ARCHITECTURE_DECISION.md §2.2 for why AP deviates from the AR vocabulary.
+export type VendorBillStatus = 'DRAFT' | 'APPROVED' | 'PARTIALLY_PAID' | 'PAID' | 'VOID';
+
+const VENDOR_BILL_EDGES: Record<VendorBillStatus, Set<VendorBillStatus>> = {
+  DRAFT: new Set(['DRAFT', 'APPROVED', 'VOID']),
+  APPROVED: new Set(['APPROVED', 'PARTIALLY_PAID', 'PAID', 'VOID']),
+  // A bill with payments cannot be voided (guarded in the service), so the
+  // only forward moves from here are further payments.
+  PARTIALLY_PAID: new Set(['PARTIALLY_PAID', 'PAID']),
+  PAID: new Set(['PAID']),
+  VOID: new Set(['VOID']),
+};
+
+/**
+ * Payment reversal is the ONLY operation that moves a bill backwards, so its
+ * edges live in a separate set that only `reversePayment()` consults. There is
+ * no generic "set status" endpoint, so backward transitions stay unreachable by
+ * any other path — the capability is created deliberately and confined by
+ * construction (AP_ARCHITECTURE_DECISION.md §11.3).
+ */
+const VENDOR_BILL_REVERSAL_EDGES: Record<string, Set<VendorBillStatus>> = {
+  PAID: new Set(['PAID', 'PARTIALLY_PAID', 'APPROVED']),
+  PARTIALLY_PAID: new Set(['PARTIALLY_PAID', 'APPROVED']),
+  APPROVED: new Set(['APPROVED']),
+};
+
 export function assertQuotationStatusTransition(from: QuotationStatus, to: QuotationStatus): void {
   const allowed = QUOTATION_EDGES[from];
   if (!allowed?.has(to)) {
@@ -79,5 +109,20 @@ export function assertNoteStatusTransition(from: AdjustmentStatus, to: Adjustmen
   const allowed = ADJUSTMENT_EDGES[from];
   if (!allowed?.has(to)) {
     throw new BadRequestException(`Note status cannot change from ${from} to ${to}`);
+  }
+}
+
+export function assertVendorBillStatusTransition(from: VendorBillStatus, to: VendorBillStatus): void {
+  const allowed = VENDOR_BILL_EDGES[from];
+  if (!allowed?.has(to)) {
+    throw new BadRequestException(`Vendor bill status cannot change from ${from} to ${to}`);
+  }
+}
+
+/** Backward transition, reachable only through payment reversal. */
+export function assertVendorBillReversal(from: VendorBillStatus, to: VendorBillStatus): void {
+  const allowed = VENDOR_BILL_REVERSAL_EDGES[from];
+  if (!allowed?.has(to)) {
+    throw new BadRequestException(`Payment reversal cannot move a vendor bill from ${from} to ${to}`);
   }
 }

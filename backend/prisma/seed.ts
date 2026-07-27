@@ -12,7 +12,9 @@ const prisma = new PrismaClient();
 const PERMISSION_GROUPS = [
   'customers', 'vendors', 'services', 'rates', 'quotations', 'jobs',
   'ratings', 'reports', 'dashboard', 'settings', 'users', 'notifications',
-  'invoices', 'recycle', 'approvals',
+  // 'payables' is deliberately separate from 'invoices': a user who can bill
+  // customers does not thereby gain the right to create or pay vendor bills.
+  'invoices', 'payables', 'recycle', 'approvals',
 ];
 
 const ROLE_MATRIX: Record<string, string[]> = {
@@ -23,6 +25,7 @@ const ROLE_MATRIX: Record<string, string[]> = {
     'quotations.read', 'quotations.write', 'jobs.read', 'jobs.write',
     'ratings.read', 'ratings.write', 'reports.read', 'dashboard.read',
     'notifications.read', 'invoices.read', 'invoices.write',
+    'payables.read', 'payables.write',
     'recycle.read', 'recycle.write', 'approvals.read', 'approvals.write',
   ],
   Sales: [
@@ -39,6 +42,7 @@ const ROLE_MATRIX: Record<string, string[]> = {
     'customers.read', 'vendors.read', 'services.read', 'rates.read',
     'quotations.read', 'jobs.read', 'reports.read', 'dashboard.read',
     'notifications.read', 'invoices.read', 'invoices.write',
+    'payables.read', 'payables.write',
   ],
   Viewer: [
     'customers.read', 'vendors.read', 'services.read', 'rates.read',
@@ -116,6 +120,7 @@ async function main() {
     { key: 'invoice', prefix: 'INV', padding: 4, includeYear: true },
     { key: 'creditNote', prefix: 'CN', padding: 4, includeYear: true },
     { key: 'debitNote', prefix: 'DN', padding: 4, includeYear: true },
+    { key: 'vendorBill', prefix: 'BILL', padding: 4, includeYear: true },
   ];
   for (const s of sequences) {
     await prisma.sequence.upsert({ where: { key: s.key }, update: {}, create: s });

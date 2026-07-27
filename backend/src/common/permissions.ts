@@ -20,6 +20,10 @@ export const PERM = {
   JOBS_WRITE: 'jobs.write',
   INVOICES_READ: 'invoices.read',
   INVOICES_WRITE: 'invoices.write',
+  // Accounts Payable — deliberately separate from invoices.*: billing a
+  // customer and paying a vendor are different duties.
+  PAYABLES_READ: 'payables.read',
+  PAYABLES_WRITE: 'payables.write',
   RATINGS_READ: 'ratings.read',
   RATINGS_WRITE: 'ratings.write',
   REPORTS_READ: 'reports.read',

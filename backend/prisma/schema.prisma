@@ -53,6 +53,10 @@ model User {
   vendorsUpdated     Vendor[]          @relation("VendorUpdatedBy")
   notesCreated       CreditDebitNote[] @relation("NoteCreatedBy")
   notesUpdated       CreditDebitNote[] @relation("NoteUpdatedBy")
+  billsCreated       VendorBill[]      @relation("BillCreatedBy")
+  billsUpdated       VendorBill[]      @relation("BillUpdatedBy")
+  vendorPaymentsRecorded VendorPayment[] @relation("VendorPaymentRecordedBy")
+  vendorPaymentsReversed VendorPayment[] @relation("VendorPaymentReversedBy")
 
   @@map("users")
 }
@@ -359,6 +363,7 @@ model Vendor {
   addresses    VendorAddress[]
   documents    VendorDocument[]
   bankAccounts VendorBankAccount[]
+  bills        VendorBill[]
 
   @@index([name])
   @@index([deletedAt])
@@ -662,6 +667,11 @@ model Job {
   documents JobDocument[]
   tracking  JobTrackingEvent[]
   invoices  Invoice[]
+  // AP allocation back-relations. Vendor bills READ these links for the cost
+  // variance view; they never write actualCost / profit / actualRevenue
+  // (AP_ARCHITECTURE_DECISION.md §4 — those values keep their existing owner).
+  vendorBills     VendorBill[]
+  vendorBillItems VendorBillItem[]
 
   // One quotation converts to at most one job. NULLs are treated as distinct
   // by Postgres, so manually-created jobs (no quotation) are unaffected.
@@ -856,6 +866,121 @@ model CreditDebitNoteItem {
 
   @@index([noteId])
   @@map("credit_debit_note_items")
+}
+
+// ───────────────────── Accounts Payable (Sprint 03) ─────────────────────
+// A VendorBill is our record of one invoice issued to us by one vendor. It is
+// identified by the vendor's own invoice number and, once APPROVED, is a
+// payable that appears in AP aging. Bills may be allocated to jobs for
+// reporting, but they NEVER write Job.actualCost / profit / actualRevenue —
+// see AP_ARCHITECTURE_DECISION.md §4 (one owner per financial value).
+
+enum VendorBillStatus {
+  DRAFT
+  APPROVED
+  PARTIALLY_PAID
+  PAID
+  // VOID (not CANCELLED) is the accounting term for nullifying a posted
+  // payable. Deliberate deviation from the AR vocabulary — see ADR §2.2.
+  VOID
+}
+
+model VendorBill {
+  id              String           @id @default(uuid())
+  billNumber      String           @unique // auto: BILL-2026-0001
+  // The vendor's own invoice number. NOT NULL by design: Postgres treats NULLs
+  // as distinct, so a nullable column would silently allow unlimited duplicate
+  // blank-numbered bills — defeating duplicate control exactly when data
+  // quality is worst.
+  vendorInvoiceNo String
+  vendorId        String
+  // Restrict: financial history must not lose its counterparty.
+  vendor          Vendor           @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  // Header-level default job allocation; individual lines may override it.
+  jobId           String?
+  job             Job?             @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  currency        String           @default("MYR")
+  subtotal        Decimal          @default(0) @db.Decimal(14, 2)
+  taxPct          Decimal          @default(0) @db.Decimal(7, 4)
+  // SST on a purchase is a COST, never recoverable input tax (PO Decision 6).
+  taxAmt          Decimal          @default(0) @db.Decimal(14, 2)
+  totalAmount     Decimal          @default(0) @db.Decimal(14, 2)
+  // Denormalized running total of non-reversed payments, written in the same
+  // transaction as the payment/reversal rows.
+  amountPaid      Decimal          @default(0) @db.Decimal(14, 2)
+  status          VendorBillStatus @default(DRAFT)
+  billDate        DateTime         @default(now()) // vendor's invoice date = SST tax point
+  dueDate         DateTime?
+  terms           String?
+  notes           String?
+  voidReason      String?
+  createdById     String?
+  createdBy       User?            @relation("BillCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById     String?
+  updatedBy       User?            @relation("BillUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  items    VendorBillItem[]
+  payments VendorPayment[]
+
+  // Duplicate-bill control, scoped per vendor: two different carriers may both
+  // legitimately issue "INV-001".
+  @@unique([vendorId, vendorInvoiceNo])
+  @@index([vendorId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([jobId])
+  @@map("vendor_bills")
+}
+
+model VendorBillItem {
+  id           String     @id @default(uuid())
+  billId       String
+  bill         VendorBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+  description  String
+  unitPrice    Decimal    @default(0) @db.Decimal(14, 4) // in lineCurrency
+  unit         String?
+  quantity     Decimal    @default(1) @db.Decimal(14, 4)
+  lineCurrency String     @default("MYR")
+  fxRate       Decimal    @default(1) @db.Decimal(14, 6) // lineCurrency -> bill currency
+  amount       Decimal    @default(0) @db.Decimal(14, 2) // qty × unitPrice × fx, excl tax
+  taxExempt    Boolean    @default(false) // SVE 0% vs SV — same semantics as AR
+  accNo        String?
+  // Line-level job allocation, overriding the bill header. This is what lets
+  // one consolidated carrier invoice cover ten shipments.
+  jobId        String?
+  job          Job?       @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  sortOrder    Int        @default(0)
+
+  @@index([billId])
+  // The job-billed-total query path (cost variance).
+  @@index([jobId])
+  @@map("vendor_bill_items")
+}
+
+model VendorPayment {
+  id             String     @id @default(uuid())
+  billId         String
+  // Restrict: cash records outrank their document.
+  bill           VendorBill @relation(fields: [billId], references: [id], onDelete: Restrict)
+  amount         Decimal    @db.Decimal(14, 2)
+  paidAt         DateTime   @default(now())
+  method         String? // bank transfer, cheque, cash...
+  reference      String?
+  recordedById   String?
+  // Restrict: who moved money must stay resolvable.
+  recordedBy     User?      @relation("VendorPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  // Soft reversal (ADR §11): the row is preserved and flagged, never deleted,
+  // so the audit trail survives. Reversed rows are excluded from amountPaid.
+  reversedAt     DateTime?
+  reversedById   String?
+  reversedBy     User?      @relation("VendorPaymentReversedBy", fields: [reversedById], references: [id], onDelete: Restrict)
+  reversalReason String?
+  createdAt      DateTime   @default(now())
+
+  @@index([billId])
+  @@map("vendor_payments")
 }
 
 model InvoicePayment {

@@ -4,13 +4,23 @@ import { RequirePermission } from '../../common/decorators/permissions.decorator
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { PayablesService } from '../payables/payables.service';
 import { AddTrackingEventDto, CreateJobDto, UpdateJobDto } from './jobs.dto';
 import { JobsService } from './jobs.service';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('jobs')
 export class JobsController {
-  constructor(private jobs: JobsService) {}
+  constructor(private jobs: JobsService, private payables: PayablesService) {}
+
+  /**
+   * Estimated / Recorded / Billed / Variance for one job. Read-only: vendor
+   * bills are not the owner of Job.actualCost and this endpoint writes nothing.
+   */
+  @Get(':id/cost-variance') @RequirePermission('jobs.read')
+  costVariance(@Param('id') id: string) {
+    return this.payables.jobCostVariance(id);
+  }
 
   @Get() @RequirePermission('jobs.read')
   list(

@@ -2,6 +2,8 @@ import {
   assertInvoiceStatusTransition,
   assertJobStatusTransition,
   assertQuotationStatusTransition,
+  assertVendorBillReversal,
+  assertVendorBillStatusTransition,
 } from './state-machine';
 
 describe('State machine — quotation transitions', () => {
@@ -90,5 +92,65 @@ describe('State machine — invoice transitions', () => {
     expect(() => assertInvoiceStatusTransition('ISSUED', 'CANCELLED')).not.toThrow();
     expect(() => assertInvoiceStatusTransition('PARTIALLY_PAID', 'CANCELLED')).not.toThrow();
     expect(() => assertInvoiceStatusTransition('PAID', 'CANCELLED')).toThrow();
+  });
+});
+
+describe('State machine — vendor bill transitions (AP)', () => {
+  it('allows the normal DRAFT → APPROVED → PARTIALLY_PAID → PAID path', () => {
+    expect(() => assertVendorBillStatusTransition('DRAFT', 'APPROVED')).not.toThrow();
+    expect(() => assertVendorBillStatusTransition('APPROVED', 'PARTIALLY_PAID')).not.toThrow();
+    expect(() => assertVendorBillStatusTransition('PARTIALLY_PAID', 'PAID')).not.toThrow();
+    expect(() => assertVendorBillStatusTransition('APPROVED', 'PAID')).not.toThrow();
+  });
+
+  it('allows voiding only before any payment has landed', () => {
+    expect(() => assertVendorBillStatusTransition('DRAFT', 'VOID')).not.toThrow();
+    expect(() => assertVendorBillStatusTransition('APPROVED', 'VOID')).not.toThrow();
+    // Once payments exist the bill has left APPROVED — voiding is not a legal
+    // forward move (the service also blocks it with a 409).
+    expect(() => assertVendorBillStatusTransition('PARTIALLY_PAID', 'VOID')).toThrow();
+    expect(() => assertVendorBillStatusTransition('PAID', 'VOID')).toThrow();
+  });
+
+  it('cannot skip approval — a DRAFT bill is not payable', () => {
+    expect(() => assertVendorBillStatusTransition('DRAFT', 'PARTIALLY_PAID')).toThrow();
+    expect(() => assertVendorBillStatusTransition('DRAFT', 'PAID')).toThrow();
+  });
+
+  it('treats PAID and VOID as terminal in the forward direction', () => {
+    for (const to of ['DRAFT', 'APPROVED', 'PARTIALLY_PAID', 'VOID'] as const) {
+      expect(() => assertVendorBillStatusTransition('PAID', to)).toThrow();
+    }
+    for (const to of ['DRAFT', 'APPROVED', 'PARTIALLY_PAID', 'PAID'] as const) {
+      expect(() => assertVendorBillStatusTransition('VOID', to)).toThrow();
+    }
+  });
+
+  it('never allows a bill to return to DRAFT once approved', () => {
+    expect(() => assertVendorBillStatusTransition('APPROVED', 'DRAFT')).toThrow();
+    expect(() => assertVendorBillStatusTransition('PARTIALLY_PAID', 'DRAFT')).toThrow();
+  });
+});
+
+// Payment reversal is the ONLY backward move, and it lives in its own edge set
+// so it can never be reached through the forward assertion.
+describe('State machine — vendor bill payment reversal', () => {
+  it('allows the backward moves reversal needs', () => {
+    expect(() => assertVendorBillReversal('PAID', 'PARTIALLY_PAID')).not.toThrow();
+    expect(() => assertVendorBillReversal('PAID', 'APPROVED')).not.toThrow();
+    expect(() => assertVendorBillReversal('PARTIALLY_PAID', 'APPROVED')).not.toThrow();
+    expect(() => assertVendorBillReversal('PAID', 'PAID')).not.toThrow();
+  });
+
+  it('is the only path to those backward moves — the forward set forbids them', () => {
+    expect(() => assertVendorBillStatusTransition('PAID', 'PARTIALLY_PAID')).toThrow();
+    expect(() => assertVendorBillStatusTransition('PAID', 'APPROVED')).toThrow();
+    expect(() => assertVendorBillStatusTransition('PARTIALLY_PAID', 'APPROVED')).toThrow();
+  });
+
+  it('never lets reversal resurrect a DRAFT or void a bill', () => {
+    expect(() => assertVendorBillReversal('PAID', 'DRAFT')).toThrow();
+    expect(() => assertVendorBillReversal('PAID', 'VOID')).toThrow();
+    expect(() => assertVendorBillReversal('APPROVED', 'DRAFT')).toThrow();
   });
 });

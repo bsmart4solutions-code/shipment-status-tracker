@@ -3,6 +3,28 @@
 All notable changes to the Shipment Status Tracker (Freight ERP) are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); sprint-based versioning.
 
+## [Sprint 03] — 2026-07-28 — Accounts Payable (P0-3)
+
+### Added
+- **Vendor Bills** — capture what a vendor invoiced us: header + lines, SST-aware (SST is a cost, no input-tax credit), multi-currency, server-computed totals, lifecycle DRAFT → APPROVED → PARTIALLY_PAID → PAID plus **VOID**.
+- **Multi-job allocation** — line-level job override, so one consolidated carrier invoice can cover several shipments; bills may also carry no job at all.
+- **Duplicate-bill control** — unique `(vendorId, vendorInvoiceNo)`: the same invoice number is blocked for one vendor and allowed for another.
+- **Vendor payments** — partial payments with overpayment prevention and derived status.
+- **Payment reversal** — soft reversal that preserves the row (reason, who, when), recomputes outstanding in the same transaction and re-derives status through a reversal-only edge set; AP aging needs no recalculation job because it is derived, not stored.
+- **AP Aging** — due-date buckets, per-vendor totals, total payable.
+- **Job cost variance (Phase B)** — read-only `GET /jobs/:id/cost-variance` and a job Cost panel showing four independent values: Estimated · Recorded · Vendor Bill Total · Variance, with honest labelling when the recorded cost is still the quotation estimate, and "no bills yet" instead of a 0.00 variance.
+- New `payables.read` / `payables.write` permission scope (Administrator, Manager, Finance) — deliberately separate from `invoices.*`.
+
+### Ownership boundary
+- Vendor bills **never** write `Job.actualCost`, `Job.profit`, `Job.actualRevenue` or the P&L. Verified live (a full create → approve → pay → reverse → void cycle left every AR, job and P&L figure numerically identical) and enforced by a structural test.
+
+### Tests
+- +66 tests (suite 219/219). One additive migration; no existing table altered; no existing endpoint changed.
+
+See `SPRINT_03_REPORT.md`; architecture in `AP_ARCHITECTURE_DECISION.md`.
+
+---
+
 ## [Sprint 02A] — 2026-07-27 — Production storage configuration gate (H-1)
 
 ### Fixed

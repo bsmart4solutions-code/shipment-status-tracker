@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileText, MapPin, Plus, Receipt, Sparkles, Trash2, Upload } from 'lucide-react';
 import { Shell } from '@/components/shell';
 import { ColumnPicker, useColumns } from '@/components/column-picker';
+import { JobCostPanel } from './cost-panel';
 import { ErrorText, Modal, Pagination, StatusBadge, Table } from '@/components/ui';
 import { api, hasPermission, uploadFile } from '@/lib/api';
 import { fmtDate, fmtMoney } from '@/lib/utils';
@@ -28,6 +29,7 @@ export default function JobsPage() {
   const [status, setStatus] = useState('');
   const [editing, setEditing] = useState<JobRow | 'new' | null>(null);
   const [tracking, setTracking] = useState<JobRow | null>(null);
+  const [costFor, setCostFor] = useState<JobRow | null>(null);
   const [docsFor, setDocsFor] = useState<JobRow | null>(null);
 
   const { data } = useQuery({
@@ -93,6 +95,7 @@ export default function JobsPage() {
               <div className="flex gap-2">
                 <button className="text-primary hover:underline text-sm" onClick={() => setTracking(j)}>Track</button>
                 <button className="text-primary hover:underline text-sm" onClick={() => setDocsFor(j)}>Docs</button>
+                <button className="text-primary hover:underline text-sm" onClick={() => setCostFor(j)}>Cost</button>
                 {canWrite && <button className="text-primary hover:underline text-sm" onClick={() => setEditing(j)}>Edit</button>}
                 {canInvoice && Number(j.actualRevenue) > 0 && (
                   <button className="text-primary hover:underline text-sm inline-flex items-center gap-1"
@@ -111,6 +114,7 @@ export default function JobsPage() {
       {editing && <JobModal job={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {tracking && <TrackingModal job={tracking} onClose={() => setTracking(null)} />}
       {docsFor && <DocumentsModal job={docsFor} onClose={() => setDocsFor(null)} />}
+      {costFor && <JobCostPanel jobId={costFor.id} jobNumber={costFor.jobNumber} onClose={() => setCostFor(null)} />}
     </Shell>
   );
 }

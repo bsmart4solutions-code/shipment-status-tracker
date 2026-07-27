@@ -24,7 +24,7 @@
 |---|---|---|---|---|---|
 | P0-1 | ✅ **DONE (Sprint 01, 2026-07-20)** — **Credit Note** (issue against invoice, tax reversal, apply to AR) | ★★★ SST compliance for corrections/returns | M | Invoice, AR | BA §18 |
 | P0-2 | ✅ **DONE (Sprint 01, 2026-07-20)** — **Debit Note** (post-invoice extra charge, tax, AR posting) | ★★★ compliant billing of late charges | S–M | P0-1 shares model | BA §19 |
-| P0-3 | **Accounts Payable — vendor bill capture + AP aging** | ★★★ know payables to carriers/hauliers; cost control | L | Vendor master, Jobs | BA §16 |
+| P0-3 | ✅ **DONE (Sprint 03, 2026-07-28)** — **Accounts Payable — vendor bill capture + payments + reversal + AP aging + job cost variance** | ★★★ know payables to carriers/hauliers; cost control | L | Vendor master, Jobs | BA §16 |
 | P0-4 | **Booking object + shipment operational milestones** (Booked→Gated-in→Loaded→Departed→Arrived→Delivered) | ★★★ the missing core forwarding step | L | Quotation→Job | BA §4, §5 |
 | P0-5 | ✅ **DONE (Sprint 02, 2026-07-21)** — **Persistent document storage (S3 / Cloudflare R2)** via Storage Driver abstraction; production env cutover pending (see `TODO.md`) | ★★★ prevents loss of BL/PDF/OCR files on redeploy | M | Documents module | PA §7-4, BA §21 |
 | P0-6 | ✅ **DONE (Sprint 02, 2026-07-21)** — **Replace `xlsx` (SheetJS)** with `exceljs` + server-side parse; `xlsx` removed from both tiers | ★★ removes the only no-patch security dependency | M | Rate import, exports | PA §7-1 |

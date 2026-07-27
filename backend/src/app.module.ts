@@ -27,6 +27,7 @@ import { CustomThrottlerGuard } from './common/guards/rate-limit.guard';
 import { HealthModule } from './modules/health/health.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { CreditDebitNotesModule } from './modules/credit-debit-notes/credit-debit-notes.module';
+import { PayablesModule } from './modules/payables/payables.module';
 import { RecycleBinModule } from './modules/recycle-bin/recycle-bin.module';
 import { ImportsModule } from './modules/imports/imports.module';
 import { DocumentsModule } from './modules/documents/documents.module';
@@ -59,6 +60,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
     HealthModule,
     InvoicesModule,
     CreditDebitNotesModule,
+    PayablesModule,
     RecycleBinModule,
     ImportsModule,
     DocumentsModule,

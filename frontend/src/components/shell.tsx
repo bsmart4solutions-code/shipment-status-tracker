@@ -23,6 +23,7 @@ const NAV = [
   { href: '/invoices', label: 'Invoices', icon: Receipt, perm: 'invoices.read' },
   { href: '/credit-notes', label: 'Credit Notes', icon: Receipt, perm: 'invoices.read' },
   { href: '/debit-notes', label: 'Debit Notes', icon: Receipt, perm: 'invoices.read' },
+  { href: '/payables', label: 'Payables', icon: Wallet, perm: 'payables.read' },
   { href: '/customers', label: 'Customers', icon: Users, perm: 'customers.read' },
   { href: '/vendors', label: 'Vendors', icon: Truck, perm: 'vendors.read' },
   { href: '/services', label: 'Services', icon: Home, perm: 'services.read' },

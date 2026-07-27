@@ -38,7 +38,7 @@ Working list maintained at the end of each sprint. Backlog priorities live in
 
 - [x] **H1–H4 fixed in Sprint 01A** (2026-07-20) — see `SPRINT_01A_REPORT.md`.
 - [x] **M2, M3, M4, M6 fixed in Sprint 02** (2026-07-21) — see `SPRINT_02_REPORT.md`.
-- [ ] Remaining open: M1 (notes against DRAFT invoices), M5 (`notes.issue` permission before non-admin billing users), M7 (AP model decision — belongs in the Sprint 03 AP plan), M8 (notes in job P&L), M9 (broader service-test coverage), M10 (single outstanding-balance owner — partially addressed by `issuedNoteNet`), L1–L6.
+- [ ] Remaining open: M1 (notes against DRAFT invoices), M5 (`notes.issue` permission before non-admin billing users), M7 (vendor-note model — **decided** in `AP_ARCHITECTURE_DECISION.md` §6: separate model; build deferred), M8 (notes in job P&L), M9 (broader service-test coverage), M10 (single outstanding-balance owner — partially addressed by `issuedNoteNet`), L1–L6.
 
 ## Sprint 02 follow-ups
 
@@ -59,16 +59,23 @@ Working list maintained at the end of each sprint. Backlog priorities live in
   bucket config, zero code), M-3 (delete ordering + orphan sweep), M-5
   (`ContentType` on put, before presigned URLs), M-2 (workbook decompression
   guard), M-1 (boot-time bucket probe), M-6 (MinIO CI integration spec),
-  M-7 (generalized attachment model — belongs in the Sprint 03 AP plan),
+  M-7 (generalized attachment model — **decided** in ADR §7: polymorphic `attachments`; build deferred by PO Decision 5),
   L-1 … L-8.
+
+## Sprint 03 follow-ups (deferred by design)
+
+- [ ] **Vendor bill attachments** — deferred by PO Decision 5, so an approved payable has no scanned vendor invoice in the system. Interim: job-linked bills can use the existing Job Documents feature; standalone bills have no home. Design settled in `AP_ARCHITECTURE_DECISION.md` §7 (polymorphic `attachments`). **Depends on the R2 cutover above.**
+- [ ] **Vendor credit/debit notes** — design settled (ADR §6, separate `vendor_credit_debit_notes` model reusing the calc engine + state machine). The `noteNet` parameter is already wired through `applyVendorPayment`, so netting arrives without a signature change.
+- [ ] **Job cost detail lines** (ADR §5.6) — the structural fix for `Job.actualCost` being seeded with the quotation estimate. Until then the cost panel labels the recorded cost as unconfirmed.
+- [ ] **AR payment reversal** — AP now has it; AR still tells users to "reverse the payments first" with no endpoint to do so (`invoices.service.cancel`). Port the AP pattern.
+- [ ] Segregation of duties: split `payables.approve` / `payables.pay` before non-owner finance staff are onboarded.
 
 ## Next sprint candidate (needs Product Owner approval first)
 
-- **Sprint 03 is not started.** Per process, a `SPRINT_03_PLAN.md` must be
-  produced and explicitly approved before any implementation. The expected
-  subject is **P0-3 Accounts Payable**, and its plan must open with two model
-  decisions it already owes: the vendor credit/debit-note model
-  (`ARCHITECTURE_REVIEW.md` M7) and the generalized document-attachment model
-  (`ARCHITECTURE_REVIEW_SPRINT02.md` M-7). Other P0 candidates: P0-7
-  (credit-limit enforcement — S), P0-4 (booking + milestones — L),
-  P0-8 (AR automation + SOA — M).
+- **Sprint 03 (Accounts Payable) is complete** — see `SPRINT_03_REPORT.md`.
+  **Sprint 04 is not started.** Per process, a `SPRINT_04_PLAN.md` must be
+  produced and explicitly approved before any implementation. Remaining P0
+  candidates by value/dependency order: **P0-7** credit-limit enforcement (S —
+  data already captured, smallest remaining P0), **P0-8** AR overdue automation
+  + Statement of Account (M — pairs naturally with the new AP side),
+  **P0-4** booking + shipment milestones (L — the last MVP-scope blocker).
