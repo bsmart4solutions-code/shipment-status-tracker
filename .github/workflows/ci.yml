@@ -50,6 +50,53 @@ jobs:
       - name: Unit tests
         run: npm test
 
+  # Integration tests boot the real application and drive it over real HTTP
+  # against a real Postgres. They catch the class of defect unit tests cannot:
+  # row-locked SQL, guards, the global ValidationPipe, the exception filter and
+  # Prisma error mapping. Runs in parallel with the unit job so the critical
+  # path is unchanged.
+  backend-e2e:
+    name: Backend — integration (e2e)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: erp
+          POSTGRES_PASSWORD: erp_ci_pw
+          POSTGRES_DB: logistics_erp_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U erp -d logistics_erp_e2e"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://erp:erp_ci_pw@localhost:5432/logistics_erp_e2e?schema=public
+      JWT_SECRET: ci-test-secret-not-for-production
+      JWT_EXPIRES_IN: 8h
+      BASE_CURRENCY: MYR
+      SEED_ADMIN_PASSWORD: Admin@123
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+      - name: Seed roles, permissions and demo data
+        run: npx prisma db seed
+      - name: Integration tests
+        run: npm run test:e2e
+
   frontend:
     name: Frontend — typecheck & build
     runs-on: ubuntu-latest

@@ -356,14 +356,23 @@ export class PayablesService {
    */
   async reversePayment(paymentId: string, dto: ReverseVendorPaymentDto, userId?: string) {
     const result = await this.prisma.$transaction(async (tx) => {
+      // Locate the bill first, then take the row lock, then RE-READ the payment
+      // inside that lock. Reading the payment before locking let two concurrent
+      // reversals both observe `reversedAt = null` and both proceed — with
+      // several payments on one bill that races `amountPaid` to a wrong value.
+      // Found by the integration test layer; unit tests cannot see it because
+      // they stub the transaction.
+      const located = await tx.vendorPayment.findUnique({ where: { id: paymentId }, select: { billId: true } });
+      if (!located) throw new NotFoundException('Payment not found');
+
+      const rows = await tx.$queryRaw<{ id: string; status: VendorBillStatus; totalAmount: unknown; billNumber: string }[]>`
+        SELECT id, status, "totalAmount", "billNumber" FROM vendor_bills WHERE id = ${located.billId} FOR UPDATE`;
+      const bill = rows[0];
+      if (!bill) throw new NotFoundException('Vendor bill not found');
+
       const payment = await tx.vendorPayment.findUnique({ where: { id: paymentId } });
       if (!payment) throw new NotFoundException('Payment not found');
       if (payment.reversedAt) throw new BadRequestException('This payment has already been reversed');
-
-      const rows = await tx.$queryRaw<{ id: string; status: VendorBillStatus; totalAmount: unknown; billNumber: string }[]>`
-        SELECT id, status, "totalAmount", "billNumber" FROM vendor_bills WHERE id = ${payment.billId} FOR UPDATE`;
-      const bill = rows[0];
-      if (!bill) throw new NotFoundException('Vendor bill not found');
 
       await tx.vendorPayment.update({
         where: { id: paymentId },

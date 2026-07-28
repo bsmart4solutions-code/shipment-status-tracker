@@ -12,6 +12,7 @@ import { fmtDate, fmtMoney } from '@/lib/utils';
 import { exportToXlsx } from '@/lib/xlsx-export';
 import { EmailDialog } from '@/components/email-dialog';
 import { NoteModal } from '../adjustments/note-form';
+import { CreditIssueDialog } from './credit-issue-dialog';
 
 const INVOICE_STATUSES = ['DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'CANCELLED'];
 const INVOICE_COLS = ['Invoice #', 'Customer', 'Job', 'Total', 'Paid', 'Balance', 'Due Date', 'Status'];
@@ -34,6 +35,8 @@ export default function InvoicesPage() {
   const [showAging, setShowAging] = useState(false);
   const [emailFor, setEmailFor] = useState<InvoiceRow | null>(null);
   const [noteFor, setNoteFor] = useState<{ invoice: InvoiceRow; type: 'CREDIT' | 'DEBIT' } | null>(null);
+  // Issue runs through a credit check first (P0-7) — hard block at issue time.
+  const [issuing, setIssuing] = useState<InvoiceRow | null>(null);
   const cols = useColumns('invoices', INVOICE_COLS);
 
   const { data } = useQuery({
@@ -44,10 +47,6 @@ export default function InvoicesPage() {
 
   const canWrite = hasPermission('invoices.write');
 
-  const issue = useMutation({
-    mutationFn: (id: string) => api(`/invoices/${id}/issue`, { method: 'POST' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['invoices'] }),
-  });
   const cancel = useMutation({
     mutationFn: (id: string) => api(`/invoices/${id}/cancel`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['invoices'] }),
@@ -98,7 +97,7 @@ export default function InvoicesPage() {
                     <button className="text-primary hover:underline text-sm" onClick={() => setEditing(inv)}>Edit</button>
                   )}
                   {canWrite && inv.status === 'DRAFT' && (
-                    <button className="text-primary hover:underline text-sm" onClick={() => issue.mutate(inv.id)}>Issue</button>
+                    <button className="text-primary hover:underline text-sm" onClick={() => setIssuing(inv)}>Issue</button>
                   )}
                   {inv.status !== 'DRAFT' && (
                     <button className="text-primary hover:underline text-sm inline-flex items-center gap-1" onClick={() => router.push(`/invoices/${inv.id}/print`)}>
@@ -133,7 +132,8 @@ export default function InvoicesPage() {
         })}
       </Table>
       <div className="mt-3"><Pagination page={page} pageCount={data?.pageCount ?? 1} onChange={setPage} /></div>
-      <ErrorText error={issue.error || cancel.error} />
+      {/* Issue errors surface inside the credit dialog, which owns that flow. */}
+      <ErrorText error={cancel.error} />
 
       {editing && <InvoiceModal invoice={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {paying && <PaymentModal invoice={paying} onClose={() => setPaying(null)} />}
@@ -143,6 +143,9 @@ export default function InvoicesPage() {
       )}
       {noteFor && (
         <NoteModal type={noteFor.type} note={null} initialInvoiceId={noteFor.invoice.id} onClose={() => setNoteFor(null)} />
+      )}
+      {issuing && (
+        <CreditIssueDialog invoiceId={issuing.id} invoiceNumber={issuing.invoiceNumber} onClose={() => setIssuing(null)} />
       )}
     </Shell>
   );

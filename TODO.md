@@ -38,7 +38,8 @@ Working list maintained at the end of each sprint. Backlog priorities live in
 
 - [x] **H1–H4 fixed in Sprint 01A** (2026-07-20) — see `SPRINT_01A_REPORT.md`.
 - [x] **M2, M3, M4, M6 fixed in Sprint 02** (2026-07-21) — see `SPRINT_02_REPORT.md`.
-- [ ] Remaining open: M1 (notes against DRAFT invoices), M5 (`notes.issue` permission before non-admin billing users), M7 (vendor-note model — **decided** in `AP_ARCHITECTURE_DECISION.md` §6: separate model; build deferred), M8 (notes in job P&L), M9 (broader service-test coverage), M10 (single outstanding-balance owner — partially addressed by `issuedNoteNet`), L1–L6.
+- [ ] Remaining open: M1 (notes against DRAFT invoices), M5 (`notes.issue` permission before non-admin billing users), M7 (vendor-note model — **decided** in `AP_ARCHITECTURE_DECISION.md` §6: separate model; build deferred), M8 (notes in job P&L), M9 (broader service-test coverage), L1–L6.
+- [x] **M10 closed in Sprint 04** — the AR balance formula now has one owner (`issuedNoteNetMap`) shared by aging, payment recording and credit exposure.
 
 ## Sprint 02 follow-ups
 
@@ -65,12 +66,21 @@ Working list maintained at the end of each sprint. Backlog priorities live in
 ## ARCHITECTURE_REVIEW_SPRINT03 remediation status
 
 - [x] **H-1 and H-2 fixed in Sprint 03A** (2026-07-28), plus the approved P2002 → 409 mapping — see `SPRINT_03A_REPORT.md`.
-- [ ] Open, in the review's recommended order: M-9 (clearable header job), M-2 (one allocation predicate shared by the list filter and the variance), M-1 (unallocated spend visibility), M-8 (proportional tax allocation + AP/job reconciliation), M-3 (concurrency tests + live check for payments and reversals), M-7 (CI regression for the ownership boundary), M-5 (down migration or amend the plan), M-6 (state the `jobs.read` exposure decision), L-1 … L-9.
+- [x] **M-3 and M-7 closed in Sprint 04** — concurrency is asserted under genuinely concurrent requests, and the AP ownership-boundary regression is automated in CI. M-3's proof immediately found a real payment-reversal race, now fixed.
+- [ ] Open, in the review's recommended order: M-9 (clearable header job), M-2 (one allocation predicate shared by the list filter and the variance), M-1 (unallocated spend visibility), M-8 (proportional tax allocation + AP/job reconciliation), M-5 (down migration or amend the plan), M-6 (state the `jobs.read` exposure decision), L-1 … L-9.
 
 ## Newly logged during Sprint 03A
 
 - [ ] **P&L is not historically stable.** `PnlService` converts job revenue/cost with `FxService.converter()` (latest rate), so past periods re-value whenever a rate is added — the same class of problem H-2 fixed for AP. Demonstrated accidentally during Sprint 03A verification: inserting one test rate moved the P&L by exactly `180 × (9.99 − 4.45)` on cost. `FxService.historicalConverter()` now exists and is the ready-made fix; the question is which date each figure should use (job date? invoice date?) — a Product Owner decision, not a code change.
 - [ ] **Intermittent test flake diagnosed, not fixed.** One run in five failed on `rate-sheet.parser.spec.ts` (1 of 242) and never reproduced in isolation or across four further full runs. Most likely the exceljs round-trip test (~1.5 s alone) exceeding Jest's 5 s default under parallel load. Fix is a per-test timeout; out of Sprint 03A's approved scope.
+
+## Sprint 04 follow-ups
+
+- [ ] **Confirm C-1: should `Customer.blacklist` block invoice issue like `creditHold`?** No approved decision covers it, so Sprint 04 enforces `creditHold` only and leaves `blacklist` untouched.
+- [ ] **Confirm C-2: fail-closed on unresolvable FX.** Implemented as planned — a customer holding an invoice in an unrated currency cannot be evaluated and is refused with a distinct message rather than silently allowed.
+- [ ] **Decide what to do about CUST-0003's `creditLimit = 0`.** Found in live data during verification. Under hard-block a zero limit refuses every invoice; the value was left exactly as found. Either clear it to NULL ("no limit") or confirm zero is intended.
+- [ ] **Phase B not started:** exposure column + "over limit / on hold" filter on the customer list; Playwright golden-path smoke test; credit cross-link on AR aging.
+- [ ] Split `credit.override` further (per-transaction vs standing) only if overrides become routine — audit log will show it.
 
 ## Sprint 03 follow-ups (deferred by design)
 

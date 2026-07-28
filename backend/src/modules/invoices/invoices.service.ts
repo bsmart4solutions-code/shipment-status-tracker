@@ -1,6 +1,8 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuditService } from '../../common/audit.service';
+import { FxService } from '../../common/fx.service';
+import { PermissionsService, RequestUser } from '../../common/permissions.service';
 import { MailService } from '../../common/mail.service';
 import { PrismaService } from '../../common/prisma.service';
 import { requestContext } from '../../common/request-context';
@@ -12,6 +14,10 @@ import {
   OverpaymentError, NonPositivePaymentError,
 } from './invoice.calc';
 import { CreateInvoiceDto, InvoiceItemDto, RecordPaymentDto, UpdateInvoiceDto } from './invoices.dto';
+import {
+  assertCreditAllows, CreditBlockedError, evaluateCredit,
+} from '../customers/credit.logic';
+import { PERM } from '../../common/permissions';
 
 /** Header freight fields copied verbatim from a create/update DTO. */
 const HEADER_KEYS = [
@@ -27,6 +33,8 @@ export class InvoicesService {
     private seq: SequenceService,
     private audit: AuditService,
     private mail: MailService,
+    private fx: FxService,
+    private permissions: PermissionsService,
   ) {}
 
   /** Email the invoice summary to the customer (or an explicit recipient). */
@@ -325,10 +333,92 @@ export class InvoicesService {
     return 30;
   }
 
-  async issue(id: string, userId?: string) {
+  /**
+   * Evaluate customer credit for an invoice about to be issued (P0-7).
+   *
+   * Issue is the ONLY credit-enforced action (approved D-2): only issued AR
+   * creates financial exposure, so quotations, jobs, customer maintenance and
+   * payment receipt are never blocked.
+   */
+  async creditCheckForInvoice(invoiceId: string) {
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      select: {
+        id: true, currency: true, totalAmount: true, customerId: true,
+        customer: { select: { companyName: true, creditLimit: true, outstandingLimit: true, creditHold: true } },
+      },
+    });
+    if (!invoice) throw new NotFoundException('Invoice not found');
+
+    const { exposure, fxWarning } = await this.customerExposure(invoice.customerId);
+    const fx = await this.fx.converter();
+    const newInvoiceBase = fx.toBase(Number(invoice.totalAmount), invoice.currency);
+    // A rate missing for THIS invoice's currency is equally disqualifying.
+    const invoiceFxWarning = this.fx.warning(fx);
+    const unresolved = fxWarning ?? invoiceFxWarning;
+
+    const decision = evaluateCredit({
+      exposure: unresolved ? null : exposure,
+      creditLimit: invoice.customer.creditLimit === null ? null : Number(invoice.customer.creditLimit),
+      outstandingLimit: invoice.customer.outstandingLimit === null ? null : Number(invoice.customer.outstandingLimit),
+      creditHold: invoice.customer.creditHold,
+      newInvoiceBase,
+    });
+
+    return {
+      decision,
+      baseCurrency: fx.baseCurrency,
+      fxWarning: unresolved,
+      customerId: invoice.customerId,
+      customerName: invoice.customer.companyName,
+      invoiceTotalBase: r2(newInvoiceBase),
+    };
+  }
+
+  async issue(id: string, userId?: string, opts?: { creditOverrideReason?: string; user?: RequestUser }) {
     const existing = await this.prisma.invoice.findUnique({ where: { id }, include: { customer: { select: { paymentTerm: true } } } });
     if (!existing) throw new NotFoundException('Invoice not found');
     assertInvoiceStatusTransition(existing.status, 'ISSUED');
+
+    // ── Credit control (P0-7) ────────────────────────────────────────────
+    const credit = await this.creditCheckForInvoice(id);
+    let overrideGranted = false;
+    if (credit.decision.outcome === 'BLOCK') {
+      const reason = opts?.creditOverrideReason?.trim();
+      if (reason) {
+        // Overriding is a distinct right (D-7): Administrator and Manager only.
+        if (!(await this.permissions.userHas(opts?.user, PERM.CREDIT_OVERRIDE))) {
+          throw new ForbiddenException('You do not have permission to override a credit block');
+        }
+        overrideGranted = true;
+        await this.audit.log({
+          userId, action: 'CREDIT_OVERRIDE', entityType: 'invoice', entityId: id,
+          detail: {
+            reason, customerId: credit.customerId, customer: credit.customerName,
+            blockReason: credit.decision.reason, exposure: credit.decision.exposure,
+            effectiveLimit: credit.decision.effectiveLimit, projected: credit.decision.projected,
+            baseCurrency: credit.baseCurrency,
+          },
+        });
+      } else {
+        await this.audit.log({
+          userId, action: 'CREDIT_BLOCK', entityType: 'invoice', entityId: id,
+          detail: {
+            customerId: credit.customerId, customer: credit.customerName,
+            blockReason: credit.decision.reason, exposure: credit.decision.exposure,
+            effectiveLimit: credit.decision.effectiveLimit, projected: credit.decision.projected,
+            shortfall: credit.decision.shortfall, baseCurrency: credit.baseCurrency,
+          },
+        });
+      }
+    }
+    try {
+      assertCreditAllows(credit.decision, credit.baseCurrency, { granted: overrideGranted });
+    } catch (e) {
+      if (e instanceof CreditBlockedError) throw new ConflictException(e.message);
+      throw e;
+    }
+    // ─────────────────────────────────────────────────────────────────────
     // An issued invoice must carry a due date or the AR aging report can
     // never age it — default from the customer's payment term when the user
     // didn't set one explicitly on the draft.
@@ -398,17 +488,75 @@ export class InvoicesService {
   }
 
   /**
-   * Signed net of ISSUED credit/debit notes against one invoice (credit −,
-   * debit +). Same semantics as the batch groupBy in agingReport — payments
-   * and aging must agree on what the invoice's collectible total is.
+   * Signed net of ISSUED credit/debit notes per invoice (credit −, debit +).
+   *
+   * **Single owner of the note-netting rule.** Payments, AR aging and customer
+   * credit exposure all derive from this one implementation, so they can never
+   * disagree about what an invoice actually collects (closes the open finding
+   * that this formula had one definition but several call sites).
    */
-  private async issuedNoteNet(invoiceId: string): Promise<number> {
+  private async issuedNoteNetMap(invoiceIds: string[]): Promise<Map<string, number>> {
+    const net = new Map<string, number>();
+    if (!invoiceIds.length) return net;
     const agg = await this.prisma.creditDebitNote.groupBy({
-      by: ['type'],
-      where: { invoiceId, status: 'ISSUED' },
+      by: ['invoiceId', 'type'],
+      where: { status: 'ISSUED', invoiceId: { in: invoiceIds } },
       _sum: { totalAmount: true },
     });
-    return agg.reduce((s, g) => s + (g.type === 'CREDIT' ? -1 : 1) * Number(g._sum.totalAmount ?? 0), 0);
+    for (const g of agg) {
+      if (!g.invoiceId) continue;
+      const signed = (g.type === 'CREDIT' ? -1 : 1) * Number(g._sum.totalAmount ?? 0);
+      net.set(g.invoiceId, (net.get(g.invoiceId) ?? 0) + signed);
+    }
+    return net;
+  }
+
+  /** Signed net of ISSUED notes against one invoice. */
+  private async issuedNoteNet(invoiceId: string): Promise<number> {
+    return (await this.issuedNoteNetMap([invoiceId])).get(invoiceId) ?? 0;
+  }
+
+  /**
+   * Outstanding AR per customer, in BASE currency — the single owner of
+   * "what does this customer owe us".
+   *
+   * Definition (approved D-3): issued invoices − received payments − issued
+   * credit notes + issued debit notes. DRAFT and CANCELLED invoices, and
+   * DRAFT/CANCELLED notes, contribute nothing; quotations and jobs are never
+   * included. PAID invoices are included because the arithmetic zeroes them —
+   * and because a debit note raised against a settled invoice makes it owe
+   * money again, which credit control must see.
+   *
+   * Rates: exposure is a *present-tense* figure ("what is owed right now"), so
+   * it converts at current rates. That is deliberately different from the job
+   * cost variance, which must stay historically stable. A currency with no
+   * configured rate is reported via `fxWarning` and NEVER silently treated as
+   * 1:1 — callers must fail closed rather than decide on unconverted amounts.
+   */
+  async customerExposures(customerIds: string[]): Promise<{ exposures: Map<string, number>; fxWarning: string | null }> {
+    const exposures = new Map<string, number>();
+    if (!customerIds.length) return { exposures, fxWarning: null };
+
+    const invoices = await this.prisma.invoice.findMany({
+      where: { customerId: { in: customerIds }, status: { in: ['ISSUED', 'PARTIALLY_PAID', 'PAID'] } },
+      select: { id: true, customerId: true, currency: true, totalAmount: true, amountPaid: true },
+    });
+    const noteNet = await this.issuedNoteNetMap(invoices.map((i) => i.id));
+    const fx = await this.fx.converter();
+
+    for (const inv of invoices) {
+      const balance = Number(inv.totalAmount) - Number(inv.amountPaid) + (noteNet.get(inv.id) ?? 0);
+      exposures.set(inv.customerId, r2((exposures.get(inv.customerId) ?? 0) + fx.toBase(balance, inv.currency)));
+    }
+    for (const id of customerIds) if (!exposures.has(id)) exposures.set(id, 0);
+
+    return { exposures, fxWarning: this.fx.warning(fx) };
+  }
+
+  /** Outstanding AR for one customer, in base currency. */
+  async customerExposure(customerId: string): Promise<{ exposure: number; fxWarning: string | null }> {
+    const { exposures, fxWarning } = await this.customerExposures([customerId]);
+    return { exposure: exposures.get(customerId) ?? 0, fxWarning };
   }
 
   /** Aging report: outstanding balance of ISSUED/PARTIALLY_PAID invoices, bucketed by days overdue. */
@@ -421,17 +569,7 @@ export class InvoicesService {
     // Net issued credit/debit notes into each invoice's outstanding balance:
     // a credit note reduces receivable, a debit note increases it. Only ISSUED
     // notes affect AR (read-only — the notes module owns the write path).
-    const noteAgg = await this.prisma.creditDebitNote.groupBy({
-      by: ['invoiceId', 'type'],
-      where: { status: 'ISSUED', invoiceId: { in: invoices.map((i) => i.id) } },
-      _sum: { totalAmount: true },
-    });
-    const noteNet = new Map<string, number>(); // invoiceId -> signed adjustment
-    for (const g of noteAgg) {
-      if (!g.invoiceId) continue;
-      const signed = (g.type === 'CREDIT' ? -1 : 1) * Number(g._sum.totalAmount ?? 0);
-      noteNet.set(g.invoiceId, (noteNet.get(g.invoiceId) ?? 0) + signed);
-    }
+    const noteNet = await this.issuedNoteNetMap(invoices.map((i) => i.id));
     const now = new Date();
     const bucketOf = (daysOverdue: number) => {
       if (daysOverdue <= 0) return 'Current';

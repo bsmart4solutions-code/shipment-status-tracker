@@ -4,7 +4,10 @@ import { RequirePermission } from '../../common/decorators/permissions.decorator
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
-import { CreateInvoiceDto, RecordPaymentDto, SendInvoiceEmailDto, UpdateInvoiceDto } from './invoices.dto';
+import { RequestUser } from '../../common/permissions.service';
+import {
+  CreateInvoiceDto, IssueInvoiceDto, RecordPaymentDto, SendInvoiceEmailDto, UpdateInvoiceDto,
+} from './invoices.dto';
 import { InvoicesService } from './invoices.service';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -44,8 +47,20 @@ export class InvoicesController {
   }
 
   @Post(':id/issue') @RequirePermission('invoices.write')
-  issue(@Param('id') id: string, @CurrentUser() user: { id: string }) {
-    return this.invoices.issue(id, user.id);
+  issue(
+    @Param('id') id: string,
+    @CurrentUser() user: RequestUser,
+    // Optional: present only when deliberately overriding a credit block.
+    // Existing callers that send no body are unaffected.
+    @Body() dto: IssueInvoiceDto = {},
+  ) {
+    return this.invoices.issue(id, user.id, { creditOverrideReason: dto?.creditOverrideReason, user });
+  }
+
+  /** Credit standing for an invoice about to be issued (read-only). */
+  @Get(':id/credit-check') @RequirePermission('invoices.read')
+  creditCheck(@Param('id') id: string) {
+    return this.invoices.creditCheckForInvoice(id);
   }
 
   @Post(':id/cancel') @RequirePermission('invoices.write')

@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import {
-  IsArray, IsBoolean, IsDateString, IsEmail, IsNumber, IsOptional, IsPositive, IsString, IsUUID,
+  IsArray, IsBoolean, IsDateString, IsEmail, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, IsUUID,
   Min, ValidateNested,
 } from 'class-validator';
 
@@ -76,4 +76,13 @@ export class RecordPaymentDto {
 export class SendInvoiceEmailDto {
   @IsOptional() @IsEmail() to?: string;
   @IsOptional() @IsString() message?: string;
+}
+
+/**
+ * Body for POST /invoices/:id/issue. Entirely optional — supplied only when a
+ * user with `credit.override` deliberately issues past a credit block (D-7).
+ */
+export class IssueInvoiceDto {
+  @IsOptional() @IsString() @IsNotEmpty({ message: 'A reason is required to override a credit block' })
+  creditOverrideReason?: string;
 }

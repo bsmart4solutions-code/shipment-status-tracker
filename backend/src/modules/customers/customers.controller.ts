@@ -6,17 +6,30 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { CreateCustomerDto, UpdateCustomerDto } from './customers.dto';
 import { CustomersService } from './customers.service';
+import { CreditService } from './credit.service';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('customers')
 export class CustomersController {
-  constructor(private customers: CustomersService) {}
+  constructor(private customers: CustomersService, private credit: CreditService) {}
 
   @Get() @RequirePermission('customers.read')
   list(@Query() dto: PaginationDto, @Query('status') status?: string) { return this.customers.list({ ...dto, status }); }
 
   @Get('ranking') @RequirePermission('customers.read')
   ranking() { return this.customers.ranking(); }
+
+  /**
+   * Dry-run: customers whose current exposure already exceeds their effective
+   * limit, or who are on hold. Declared before ':id' so it is never captured
+   * as an id.
+   */
+  @Get('credit/over-limit') @RequirePermission('customers.read')
+  overLimit() { return this.credit.overLimitReport(); }
+
+  /** Credit standing for one customer. */
+  @Get(':id/credit') @RequirePermission('customers.read')
+  creditFor(@Param('id') id: string) { return this.credit.creditFor(id); }
 
   @Get(':id') @RequirePermission('customers.read')
   get(@Param('id') id: string) { return this.customers.get(id); }

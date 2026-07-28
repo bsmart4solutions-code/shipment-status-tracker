@@ -11,6 +11,7 @@ import { ImportDialog } from '@/components/import-dialog';
 import { ErrorText, GpBadge, Modal, Pagination, StatusBadge, Table } from '@/components/ui';
 import { api, downloadCsv, hasPermission } from '@/lib/api';
 import { fmtDate, fmtMoney } from '@/lib/utils';
+import { CreditPanel } from './credit-panel';
 import { CustomerModal } from './customer-form';
 
 interface Customer {
@@ -34,6 +35,7 @@ export default function CustomersPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Customer | 'new' | null>(null);
+  const [creditFor, setCreditFor] = useState<Customer | null>(null);
   const [rating, setRating] = useState<Customer | null>(null);
   const [showRanking, setShowRanking] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -84,6 +86,7 @@ export default function CustomersPage() {
             <td className="td"><StatusBadge status={c.status ?? 'ACTIVE'} /></td>
             <td className="td whitespace-nowrap">
               {canWrite && <>
+                <button className="text-primary hover:underline text-sm mr-2" onClick={() => setCreditFor(c)}>Credit</button>
                 <button className="text-primary hover:underline text-sm mr-2" onClick={() => setEditing(c)}>Edit</button>
                 {hasPermission('ratings.write') && <button className="text-amber-500 hover:underline text-sm mr-2" onClick={() => setRating(c)}><Star size={13} className="inline" /> Rate</button>}
                 <button className="text-red-500 hover:underline text-sm" onClick={() => confirm(`Delete ${c.companyName}?`) && remove.mutate(c.id)}>Delete</button>
@@ -95,6 +98,7 @@ export default function CustomersPage() {
       <div className="mt-3"><Pagination page={page} pageCount={data?.pageCount ?? 1} onChange={setPage} /></div>
 
       {editing && <CustomerModal customer={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {creditFor && <CreditPanel customerId={creditFor.id} customerName={creditFor.companyName} onClose={() => setCreditFor(null)} />}
       {rating && <RatingModal customer={rating} onClose={() => setRating(null)} />}
       {showRanking && <RankingModal onClose={() => setShowRanking(false)} />}
       {showImport && (

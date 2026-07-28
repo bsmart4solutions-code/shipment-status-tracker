@@ -17,6 +17,14 @@ const PERMISSION_GROUPS = [
   'invoices', 'payables', 'recycle', 'approvals',
 ];
 
+// Permissions that do not follow the <group>.read / <group>.write pattern.
+// `credit.override` is deliberately standalone: viewing credit standing
+// (customers.read), changing a limit (customers.write) and overriding a credit
+// block are three distinct rights (Sprint 04, approved D-7).
+const EXTRA_PERMISSIONS = [
+  { code: 'credit.override', label: 'Override customer credit block' },
+];
+
 const ROLE_MATRIX: Record<string, string[]> = {
   Administrator: ['*'],
   Manager: [
@@ -26,6 +34,8 @@ const ROLE_MATRIX: Record<string, string[]> = {
     'ratings.read', 'ratings.write', 'reports.read', 'dashboard.read',
     'notifications.read', 'invoices.read', 'invoices.write',
     'payables.read', 'payables.write',
+    // D-7: Administrator and Manager only. Sales may never override.
+    'credit.override',
     'recycle.read', 'recycle.write', 'approvals.read', 'approvals.write',
   ],
   Sales: [
@@ -64,6 +74,7 @@ async function main() {
     permRecords.push({ code: `${g}.read`, label: `Read ${g}` });
     permRecords.push({ code: `${g}.write`, label: `Write ${g}` });
   }
+  permRecords.push(...EXTRA_PERMISSIONS);
   for (const p of permRecords) {
     await prisma.permission.upsert({ where: { code: p.code }, update: {}, create: p });
   }

@@ -24,6 +24,10 @@ export const PERM = {
   // customer and paying a vendor are different duties.
   PAYABLES_READ: 'payables.read',
   PAYABLES_WRITE: 'payables.write',
+  // Credit control (Sprint 04). Deliberately its own code, not folded into
+  // customers.write: viewing credit standing, changing a limit and overriding
+  // a block are three distinct rights. Administrator and Manager only.
+  CREDIT_OVERRIDE: 'credit.override',
   RATINGS_READ: 'ratings.read',
   RATINGS_WRITE: 'ratings.write',
   REPORTS_READ: 'reports.read',
