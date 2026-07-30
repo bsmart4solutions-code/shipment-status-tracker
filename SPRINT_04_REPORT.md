@@ -1,9 +1,9 @@
 # SPRINT 04 REPORT — Credit Limit Enforcement · Integration Test Layer · R2 Cutover
 
 **Plan:** `SPRINT_04_PLAN.md` (approved, policy decisions D-1 … D-9)
-**Status:** ✅ **Phase A COMPLETE** — implemented, tested, live-verified. **Phase B not started** (stretch).
+**Status:** ✅ **Phase A and Phase B COMPLETE** — implemented, tested, live-verified.
 **Date:** 2026-07-29
-**Suite:** 19 backend unit suites **276/276** · **26/26 new integration tests** · frontend 12/12 · both typechecks and production builds clean · **zero database migrations**
+**Suite:** 19 backend unit suites **276/276** · **26/26 backend integration** · **6/6 browser smoke** · frontend 12/12 · both typechecks and production builds clean · **zero database migrations**
 
 ---
 
@@ -103,7 +103,7 @@ release.
 | Isolation | Tagged fixtures + exact cleanup. **Documented deviation from the plan:** transaction-rollback isolation cannot wrap flows that open their *own* `FOR UPDATE` transactions (invoice issue, note issue, bill approve/pay/reverse/void) — wrapping them would change the very behaviour under test. Recorded in `test/setup.ts` |
 | CI | New **parallel** `backend-e2e` job beside the unit job, so the critical path is unchanged |
 | Coverage | 26 tests: credit enforcement (16) and money paths (10) — row-locked operations, status-code contracts, real P2002 → 409, concurrency, and the ownership-boundary regression |
-| Playwright | Not started — Phase B, as planned |
+| Playwright | Delivered in Phase B — 6 golden-path browser tests with their own `e2e-smoke` CI job (§11a) |
 
 **Review findings closed by this layer:** **M-3** (concurrency asserted under
 genuinely concurrent requests) and **M-7** (the AP ownership-boundary regression
@@ -174,14 +174,35 @@ your Cloudflare account and Render dashboard:
 Until this is done, production documents remain ephemeral. **This is the single
 highest-value action available and needs no development work.**
 
+## 11a. Phase B — delivered
+
+Phase A completed and verified, so the Phase B gate opened and the stretch scope
+was delivered in full.
+
+| # | Deliverable | Result |
+|---|---|---|
+| **B1** | **Credit column + "would be blocked" filter on the customer list** | Shows `exposure / effective limit`, a **Blocked** badge, `On hold`, or `No limit`. Powered by a **batch** endpoint (`GET /customers/credit/summary?ids=…`) — one aggregate for the page, never one query per row. The filter reuses the **same dry-run report** enforcement is measured by, so the list can never disagree with the block |
+| **B2** | **Playwright golden-path smoke test** | 6 tests: login → dashboard → quotations → jobs → invoices, payables + AP aging, the customer credit panel, and the invoice credit-check dialog. New `e2e-smoke` CI job builds both tiers, boots them and drives Chromium |
+| **B3** | **Credit cross-link on AR aging** | Overdue rows now carry a **Credit blocked** badge with the reason (`On credit hold` / `Over credit limit` / `Credit limit is zero`), so collections sees on one screen who is already stopped. `customerId` added to the aging row (additive field) |
+
+Two test-design defects were found and fixed while building B2, both in the test
+code rather than the product:
+- **Per-test login tripped the auth throttle** (5 attempts / 15 min by design), so unrelated assertions failed at the login step. Replaced with a single `auth.setup.ts` login persisted via `storageState` — one login per run.
+- **A race counted buttons before rows rendered**, silently skipping the credit-dialog test. Now waits for the first row.
+
+The Playwright scope is deliberately narrow: business rules, status codes, row
+locking and money maths are proven by the backend integration suite. The browser
+suite exists to catch what only a browser sees — a page that does not render, a
+route that 404s, a table that never loads, a dialog that cannot open.
+
 ## 12. Known Limitations
 
 1. **`Customer.blacklist` is not enforced** — no approved decision covers it (plan §6.1 C-1, still open).
 2. **Fail-closed on unresolvable FX** was implemented as planned (C-2) but not confirmed by decision; a customer holding an invoice in an unrated currency cannot be evaluated and is refused with a distinct message.
-3. **Phase B not started** — no exposure column on the customer list, no Playwright smoke test, no AR-aging cross-link.
+3. **Browser coverage is a smoke test, not a regression suite** — it asserts that pages render and the journey is clickable, nothing deeper. The invoice credit-dialog test skips cleanly when the dataset holds no DRAFT invoice, since it does not own that data.
 4. **No overdue enforcement** (D-6) — deferred to P0-8.
 5. **One `payables.write` still covers create/approve/pay/reverse**; likewise `credit.override` is not further split.
-6. Integration coverage is a first wave, not exhaustive — quotations, jobs and documents have no e2e coverage yet.
+6. Integration coverage is a first wave, not exhaustive — quotations, jobs and documents have no backend e2e coverage yet.
 
 ## 13. Deployment Notes
 

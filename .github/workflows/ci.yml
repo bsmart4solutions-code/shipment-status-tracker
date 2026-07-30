@@ -120,3 +120,62 @@ jobs:
         env:
           # Next needs a value at build time; not used during static build.
           API_URL: http://localhost:4000
+
+  # Browser smoke test: proves the shipped pages render and the primary journey
+  # is clickable. Deliberately narrow — business rules are covered by the
+  # backend integration job above. Boots both servers, then drives Chromium.
+  e2e-smoke:
+    name: Browser — golden-path smoke
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: erp
+          POSTGRES_PASSWORD: erp_ci_pw
+          POSTGRES_DB: logistics_erp_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U erp -d logistics_erp_smoke"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://erp:erp_ci_pw@localhost:5432/logistics_erp_smoke?schema=public
+      JWT_SECRET: ci-test-secret-not-for-production
+      JWT_EXPIRES_IN: 8h
+      BASE_CURRENCY: MYR
+      SEED_ADMIN_PASSWORD: Admin@123
+      CORS_ORIGIN: http://localhost:3000
+      API_URL: http://localhost:4000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install backend
+        working-directory: backend
+        run: npm ci && npx prisma generate && npx prisma migrate deploy && npx prisma db seed
+      - name: Start backend
+        working-directory: backend
+        run: npm run build && (node dist/main.js &) && npx wait-on http://localhost:4000/api/health/live -t 60000
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci
+      - name: Start frontend
+        working-directory: frontend
+        run: npm run build && (npm run start &) && npx wait-on http://localhost:3000/login -t 120000
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Smoke test
+        working-directory: frontend
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7

@@ -79,7 +79,9 @@ Working list maintained at the end of each sprint. Backlog priorities live in
 - [ ] **Confirm C-1: should `Customer.blacklist` block invoice issue like `creditHold`?** No approved decision covers it, so Sprint 04 enforces `creditHold` only and leaves `blacklist` untouched.
 - [ ] **Confirm C-2: fail-closed on unresolvable FX.** Implemented as planned — a customer holding an invoice in an unrated currency cannot be evaluated and is refused with a distinct message rather than silently allowed.
 - [ ] **Decide what to do about CUST-0003's `creditLimit = 0`.** Found in live data during verification. Under hard-block a zero limit refuses every invoice; the value was left exactly as found. Either clear it to NULL ("no limit") or confirm zero is intended.
-- [ ] **Phase B not started:** exposure column + "over limit / on hold" filter on the customer list; Playwright golden-path smoke test; credit cross-link on AR aging.
+- [x] **Phase B delivered** — customer-list credit column + blocked filter, AR aging credit cross-link, Playwright golden-path smoke test with its own CI job.
+- [ ] Extend browser coverage beyond the golden path only if a real regression justifies it — the backend integration suite is the cheaper place for business rules.
+- [ ] Add a **coverage gate** (the remaining part of T-6).
 - [ ] Split `credit.override` further (per-transaction vs standing) only if overrides become routine — audit log will show it.
 
 ## Sprint 03 follow-ups (deferred by design)

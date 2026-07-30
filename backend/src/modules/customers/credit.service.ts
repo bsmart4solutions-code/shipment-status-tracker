@@ -75,6 +75,38 @@ export class CreditService {
   }
 
   /**
+   * Credit standing for a page of customers — ONE aggregate for the whole set,
+   * never one query per row. Used by the customer list column.
+   */
+  async creditSummary(customerIds: string[]) {
+    const ids = [...new Set(customerIds)].slice(0, 200);
+    if (!ids.length) return { baseCurrency: this.fx.baseCurrency(), rows: [], fxWarning: null };
+
+    const customers = await this.prisma.customer.findMany({
+      where: { id: { in: ids }, deletedAt: null },
+      select: { id: true, creditLimit: true, outstandingLimit: true, creditHold: true },
+    });
+    const { exposures, fxWarning } = await this.invoices.customerExposures(customers.map((c) => c.id));
+
+    const rows = customers.map((c) => {
+      const creditLimit = c.creditLimit === null ? null : Number(c.creditLimit);
+      const outstandingLimit = c.outstandingLimit === null ? null : Number(c.outstandingLimit);
+      const { limit } = effectiveLimit(creditLimit, outstandingLimit);
+      const exposure = exposures.get(c.id) ?? 0;
+      return {
+        customerId: c.id,
+        exposure,
+        effectiveLimit: limit,
+        headroom: limit === null ? null : Math.round((limit - exposure) * 100) / 100,
+        creditHold: c.creditHold,
+        // Would an invoice be refused today? Same rule as the dry-run report.
+        wouldBlock: c.creditHold || limit === 0 || (limit !== null && exposure > limit),
+      };
+    });
+    return { baseCurrency: this.fx.baseCurrency(), rows, fxWarning };
+  }
+
+  /**
    * Dry-run report: every customer whose CURRENT exposure already exceeds their
    * effective limit, or who is on credit hold.
    *

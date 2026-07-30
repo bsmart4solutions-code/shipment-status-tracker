@@ -584,6 +584,9 @@ export class InvoicesService {
       return {
         id: inv.id,
         invoiceNumber: inv.invoiceNumber,
+        // customerId lets collections cross-link an overdue balance to the
+        // customer's credit standing (additive field).
+        customerId: inv.customerId,
         customer: inv.customer.companyName,
         currency: inv.currency,
         balance,

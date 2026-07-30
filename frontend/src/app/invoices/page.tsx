@@ -441,13 +441,27 @@ function PaymentModal({ invoice, onClose }: { invoice: InvoiceRow; onClose: () =
 }
 
 interface AgingBucket { label: string; count: number; total: number }
-interface AgingRow { invoiceNumber: string; customer: string; currency: string; balance: number; daysOverdue: number; bucket: string }
+interface AgingRow {
+  customerId: string; invoiceNumber: string; customer: string; currency: string; balance: number; daysOverdue: number; bucket: string }
 
 function AgingModal({ onClose }: { onClose: () => void }) {
   const { data } = useQuery({
     queryKey: ['invoices-aging'],
     queryFn: () => api<{ rows: AgingRow[]; buckets: AgingBucket[]; totalOutstanding: number }>('/invoices/aging'),
   });
+
+  // Cross-link to credit standing so collections can see, on the same screen,
+  // which overdue customers are already blocked from further invoicing. Reuses
+  // the same report enforcement is measured by — no second rule.
+  const { data: atRisk } = useQuery({
+    queryKey: ['customer-credit-at-risk'],
+    queryFn: () => api<{ rows: { customerId: string; reason: string | null }[] }>('/customers/credit/over-limit'),
+    enabled: hasPermission('customers.read'),
+  });
+  const blockedBy = new Map((atRisk?.rows ?? []).map((r) => [r.customerId, r.reason]));
+  const REASON_LABEL: Record<string, string> = {
+    CREDIT_HOLD: 'On credit hold', OVER_LIMIT: 'Over credit limit', ZERO_LIMIT: 'Credit limit is zero',
+  };
 
   return (
     <Modal title="Invoice Aging Report" onClose={onClose} wide>
@@ -465,7 +479,15 @@ function AgingModal({ onClose }: { onClose: () => void }) {
           {data?.rows.map((r) => (
             <tr key={r.invoiceNumber}>
               <td className="td font-medium text-primary">{r.invoiceNumber}</td>
-              <td className="td">{r.customer}</td>
+              <td className="td">
+                {r.customer}
+                {blockedBy.has(r.customerId) && (
+                  <span className="badge ml-1.5 bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
+                    title={REASON_LABEL[blockedBy.get(r.customerId) ?? ''] ?? 'Further invoices are blocked'}>
+                    Credit blocked
+                  </span>
+                )}
+              </td>
               <td className="td">{fmtMoney(r.balance, r.currency)}</td>
               <td className="td">{r.daysOverdue > 0 ? r.daysOverdue : '-'}</td>
               <td className="td"><StatusBadge status={r.bucket === 'Current' ? 'ACTIVE' : 'INACTIVE'} /> {r.bucket}</td>

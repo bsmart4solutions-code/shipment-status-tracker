@@ -31,7 +31,7 @@
 | P0-7 | ✅ **DONE (Sprint 04, 2026-07-29)** — **Credit-limit enforcement** — hard block at invoice issue, credit hold, MIN(creditLimit, outstandingLimit), audited override | ★★★ core credit control; data already captured | S | Customer master, AR | BA §1, §15 |
 | P0-8 | **AR overdue automation + Customer Statement (SOA)** | ★★★ collections + `receiveStatementsByEmail` fulfilled | M | Invoice, AR, Email | BA §15 |
 
-**P0 subtotal effort:** ~14–20 dev-weeks originally. **6 of 8 complete as at Sprint 04 Phase A (2026-07-29)**; the two remaining (P0-4 L, P0-8 M) are ~6–8 dev-weeks.
+**P0 subtotal effort:** ~14–20 dev-weeks originally. **6 of 8 complete as at Sprint 04 (2026-07-29)**; the two remaining (P0-4 L, P0-8 M) are ~6–8 dev-weeks.
 
 ---
 
@@ -83,7 +83,7 @@
 | T-3 | Add **ESLint + lint gate in CI**; pin `engines.node` | ★★ | S | P1 |
 | T-4 | Extract shared **master-form helpers** (customer/vendor form dedup) | ★ | S | P1 |
 | T-5 | Plan **Next.js 14→16** and **NestJS 10→11** major upgrades (regression vs the 254-test suite) | ★★ | L | P1 |
-| T-6 | ✅ **MOSTLY DONE (Sprint 04)** — controller/HTTP integration layer + parallel CI job delivered (26 tests); **Playwright smoke test still outstanding** (Phase B) | ★★★ | M | P1 (remainder) |
+| T-6 | ✅ **DONE (Sprint 04)** — controller/HTTP integration layer (26 tests) + Playwright golden-path smoke test (6 tests), each with its own CI job. Coverage gate not yet added | ★★★ | M | Done (coverage gate → P1) |
 | T-7 | Retire/archive orphaned `legacy/index.html`; document speculative master fields | ★ | S | P2 |
 | T-8 | JWT refresh-token rotation / revocation (if portal added) | ★★ | M | P1 (with Portal) |
 

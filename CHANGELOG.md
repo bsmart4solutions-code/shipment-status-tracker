@@ -3,7 +3,7 @@
 All notable changes to the Shipment Status Tracker (Freight ERP) are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); sprint-based versioning.
 
-## [Sprint 04 — Phase A] — 2026-07-29 — Credit Limit Enforcement · Integration Tests
+## [Sprint 04] — 2026-07-29 — Credit Limit Enforcement · Integration Tests · Browser Smoke
 
 ### Added
 - **Customer credit limit enforcement (P0-7).** Issuing an invoice that would take a customer past their effective credit limit is now refused with a **409** naming outstanding, this invoice, projected total, limit and shortfall. Credit hold blocks unconditionally. **A customer with no limit is never blocked** (null ≠ zero).
@@ -11,6 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); sprint-based ver
 - **Manual override** for Administrator and Manager only, with a mandatory reason; both blocks and overrides are audit-logged with the figures. New `credit.override` permission — deliberately separate, so a user who can issue invoices still cannot override.
 - **Credit visibility:** customer credit panel, and a credit check shown on the invoice screen *before* Issue is attempted.
 - **Dry-run report** (`GET /customers/credit/over-limit`) listing every customer enforcement would stop — including zero-limit customers, who are blocked on every invoice yet never appear as "over limit".
+- **Phase B:** credit column and a "would be blocked" filter on the customer list (batch endpoint — one aggregate per page, never N+1); **Credit blocked** badge with reason on AR aging so collections sees who is stopped; **Playwright golden-path smoke test** (6 tests) with its own `e2e-smoke` CI job.
 - **Integration/E2E test layer (T-6):** `@nestjs/testing` + `supertest` over real HTTP against a real Postgres, traversing guards, the global ValidationPipe, the exception filter and Prisma. New parallel `backend-e2e` CI job. 26 tests covering row-locked money paths, status-code contracts, real P2002 mapping, concurrency and the ownership-boundary regression — closing review findings **M-3** and **M-7**.
 
 ### Fixed
@@ -20,7 +21,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); sprint-based ver
 ### Notes
 - **Zero database migrations.** Credit fields already existed; exposure is derived; the override is recorded in the existing audit log.
 - Enforcement applies **only at invoice issue** — quotations, jobs, customer maintenance and payment receipt are never blocked.
-- **Phase B (customer-list exposure column, Playwright smoke test) not started.**
 - **Action required:** the production R2 cutover is still outstanding — see `SPRINT_04_REPORT.md` §11.
 
 See `SPRINT_04_REPORT.md`.

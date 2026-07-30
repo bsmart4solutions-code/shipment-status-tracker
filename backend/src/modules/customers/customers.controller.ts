@@ -24,6 +24,12 @@ export class CustomersController {
    * limit, or who are on hold. Declared before ':id' so it is never captured
    * as an id.
    */
+  /** Batch credit standing for the customers currently listed. */
+  @Get('credit/summary') @RequirePermission('customers.read')
+  creditSummary(@Query('ids') ids?: string) {
+    return this.credit.creditSummary((ids ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+  }
+
   @Get('credit/over-limit') @RequirePermission('customers.read')
   overLimit() { return this.credit.overLimitReport(); }
 

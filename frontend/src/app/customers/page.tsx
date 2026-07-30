@@ -30,12 +30,20 @@ const ratingSchema = z.object({
   comment: z.string().optional(),
 });
 
+interface CreditRow {
+  customerId: string; exposure: number; effectiveLimit: number | null;
+  headroom: number | null; creditHold: boolean; wouldBlock: boolean;
+}
+
 export default function CustomersPage() {
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Customer | 'new' | null>(null);
   const [creditFor, setCreditFor] = useState<Customer | null>(null);
+  // Phase B: credit standing on the list, plus an "at risk" view driven by the
+  // same dry-run report enforcement uses — one rule, not a second definition.
+  const [creditFilter, setCreditFilter] = useState<'' | 'atRisk'>('');
   const [rating, setRating] = useState<Customer | null>(null);
   const [showRanking, setShowRanking] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -44,6 +52,28 @@ export default function CustomersPage() {
     queryKey: ['customers', page, search],
     queryFn: () => api<{ items: Customer[]; total: number; pageCount: number }>(`/customers?page=${page}&search=${encodeURIComponent(search)}`),
   });
+
+  // Credit standing for the customers on this page — ONE batch call, never one
+  // request per row.
+  const pageIds = (data?.items ?? []).map((c) => c.id);
+  const { data: creditSummary } = useQuery({
+    queryKey: ['customer-credit-summary', pageIds.join(',')],
+    queryFn: () => api<{ rows: CreditRow[] }>(`/customers/credit/summary?ids=${pageIds.join(',')}`),
+    enabled: pageIds.length > 0,
+  });
+  const creditByCustomer = new Map((creditSummary?.rows ?? []).map((r) => [r.customerId, r]));
+
+  // "Would be blocked" reuses the dry-run report that enforcement itself is
+  // measured by, so the list can never disagree with the block.
+  const { data: atRisk } = useQuery({
+    queryKey: ['customer-credit-at-risk'],
+    queryFn: () => api<{ totalAffected: number; rows: { customerId: string }[] }>('/customers/credit/over-limit'),
+    enabled: creditFilter === 'atRisk',
+  });
+  const atRiskIds = new Set((atRisk?.rows ?? []).map((r) => r.customerId));
+  const rows = creditFilter === 'atRisk'
+    ? (data?.items ?? []).filter((c) => atRiskIds.has(c.id))
+    : (data?.items ?? []);
 
   const remove = useMutation({
     mutationFn: (id: string) => api(`/customers/${id}`, { method: 'DELETE' }),
@@ -61,14 +91,27 @@ export default function CustomersPage() {
         {canWrite && <button className="btn-primary" onClick={() => setEditing('new')}><Plus size={15} /> New Customer</button>}
       </div>
     }>
-      <div className="mb-4">
+      <div className="mb-4 flex flex-wrap gap-2">
         <input className="input max-w-md" placeholder="Search company, code, PIC, email…"
           value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+        <select className="input max-w-[220px]" value={creditFilter}
+          onChange={(e) => setCreditFilter(e.target.value as '' | 'atRisk')}>
+          <option value="">All customers</option>
+          <option value="atRisk">Credit: would be blocked</option>
+        </select>
       </div>
 
-      <Table head={['Code', 'Company', 'PIC', 'Payment Term', 'Priority', 'Revenue', 'Profit', 'Rating', 'Last Quote', 'Status', '']}
-        empty={data?.items.length === 0}>
-        {data?.items.map((c) => (
+      {creditFilter === 'atRisk' && atRisk && (
+        <p className="text-sm text-gray-500 mb-3">
+          {atRisk.totalAffected === 0
+            ? 'No customer would be blocked today.'
+            : `${atRisk.totalAffected} customer${atRisk.totalAffected === 1 ? '' : 's'} would have an invoice refused today.`}
+        </p>
+      )}
+
+      <Table head={['Code', 'Company', 'PIC', 'Payment Term', 'Credit', 'Revenue', 'Profit', 'Rating', 'Last Quote', 'Status', '']}
+        empty={rows.length === 0}>
+        {rows.map((c) => (
           <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
             <td className="td font-medium text-primary">{c.code}</td>
             <td className="td font-medium">
@@ -78,15 +121,28 @@ export default function CustomersPage() {
             </td>
             <td className="td text-gray-500">{c.pic || '-'}</td>
             <td className="td text-gray-500">{c.paymentTerm || '-'}</td>
-            <td className="td">{'★'.repeat(6 - (c.priority ?? 3))}</td>
+            <td className="td">
+              {(() => {
+                const cr = creditByCustomer.get(c.id);
+                if (!cr) return <span className="text-gray-400">-</span>;
+                if (cr.creditHold) return <span className="badge bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300">On hold</span>;
+                if (cr.effectiveLimit === null) return <span className="text-gray-400" title="No limit configured — never blocked">No limit</span>;
+                return (
+                  <span className={cr.wouldBlock ? 'text-red-600 dark:text-red-400 font-medium' : 'text-gray-600 dark:text-gray-300'}>
+                    {fmtMoney(cr.exposure)} / {fmtMoney(cr.effectiveLimit)}
+                    {cr.wouldBlock && <span className="badge ml-1.5 bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300">Blocked</span>}
+                  </span>
+                );
+              })()}
+            </td>
             <td className="td">{fmtMoney(c.totalRevenue)}</td>
             <td className="td text-emerald-600">{fmtMoney(c.totalProfit)}</td>
             <td className="td">{c.rating != null ? `${Number(c.rating).toFixed(2)} / 5` : '-'}</td>
             <td className="td text-gray-500">{fmtDate(c.lastQuotation)}</td>
             <td className="td"><StatusBadge status={c.status ?? 'ACTIVE'} /></td>
             <td className="td whitespace-nowrap">
+              <button className="text-primary hover:underline text-sm mr-2" onClick={() => setCreditFor(c)}>Credit</button>
               {canWrite && <>
-                <button className="text-primary hover:underline text-sm mr-2" onClick={() => setCreditFor(c)}>Credit</button>
                 <button className="text-primary hover:underline text-sm mr-2" onClick={() => setEditing(c)}>Edit</button>
                 {hasPermission('ratings.write') && <button className="text-amber-500 hover:underline text-sm mr-2" onClick={() => setRating(c)}><Star size={13} className="inline" /> Rate</button>}
                 <button className="text-red-500 hover:underline text-sm" onClick={() => confirm(`Delete ${c.companyName}?`) && remove.mutate(c.id)}>Delete</button>
