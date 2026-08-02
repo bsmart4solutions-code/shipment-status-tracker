@@ -43,8 +43,64 @@ Seeded users: `admin@erp.local` (Administrator), `sales@erp.local` (Sales) — b
 
 ## Development
 
+Local development runs **without Docker**. Three parts, all on this machine:
+
+| Part | What runs it | Port |
+|---|---|---|
+| PostgreSQL 17 | Windows service `postgresql-17` (auto-starts with Windows) | **5433** |
+| Backend (NestJS) | `npm run start:dev` — hot reload | 4000 |
+| Frontend (Next.js) | `npm run dev` — hot reload | 3000 |
+
+> **Why 5433 and not the usual 5432?** Port 5432 on this machine is already
+> held by a Postgres running inside WSL (a Supabase local stack). The two are
+> completely independent; this project uses 5433 so neither disturbs the other.
+
+### Everyday use
+
+Double-click **`start-app.bat`** in the project root. It checks the database
+service, starts backend and frontend in their own windows, and opens the
+browser. **`stop-app.bat`** stops the two dev servers (it leaves the database
+service running on purpose — it is idle-cheap and starts with Windows).
+
+Log in with `admin@erp.local` / `Admin@123`.
+
+After a reboot nothing needs restarting by hand: PostgreSQL comes up on its
+own, and `start-app.bat` handles the rest.
+
+### Or start the pieces manually
+
 ```bash
-cd backend && npm install && npx prisma migrate dev && npx prisma db seed && npm run start:dev
-cd frontend && npm install && npm run dev
-cd backend && npm test        # costing engine unit tests
+cd backend  && npm run start:dev   # http://localhost:4000
+cd frontend && npm run dev         # http://localhost:3000
 ```
+
+### Tests
+
+```bash
+cd backend  && npm test            # unit tests
+cd backend  && npm run test:e2e    # integration tests (needs the database)
+cd frontend && npm test            # frontend unit tests
+cd frontend && npx playwright test # browser smoke tests (needs both servers up)
+```
+
+### Setting up on a new machine
+
+Install **Node.js 20+** and **PostgreSQL 17**, then:
+
+```bash
+git clone <your repo url>
+cd shipment-tracker
+cd backend && npm install && npx prisma migrate deploy && npx prisma db seed
+cd ../frontend && npm install
+```
+
+Point `backend/.env`'s `DATABASE_URL` at your PostgreSQL instance (user, password
+and port), then run the two dev servers as above.
+
+### Docker
+
+`docker-compose.yml` is **kept for CI and for reproducing the full stack from
+scratch** — it is no longer used for day-to-day development. If you do use it,
+start only the database (`docker compose up -d db`); bringing up `api` and `web`
+too would occupy ports 4000 and 3000 and collide with the locally-run servers.
+

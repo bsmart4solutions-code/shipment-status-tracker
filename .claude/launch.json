@@ -6,10 +6,10 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "start:dev"],
       "cwd": "backend",
-      "port": 4001,
-      "autoPort": true,
+      "port": 4000,
+      "autoPort": false,
       "env": {
-        "PORT": "4001"
+        "PORT": "4000"
       }
     },
     {
@@ -17,8 +17,8 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "cwd": "frontend",
-      "port": 3001,
-      "autoPort": true
+      "port": 3000,
+      "autoPort": false
     }
   ]
 }
