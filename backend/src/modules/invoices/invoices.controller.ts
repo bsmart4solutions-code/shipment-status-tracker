@@ -1,12 +1,11 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/permissions.decorator';
-import { PaginationDto } from '../../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequestUser } from '../../common/permissions.service';
 import {
-  CreateInvoiceDto, IssueInvoiceDto, RecordPaymentDto, SendInvoiceEmailDto, UpdateInvoiceDto,
+  CreateInvoiceDto, IssueInvoiceDto, ListInvoicesDto, RecordPaymentDto, SendInvoiceEmailDto, UpdateInvoiceDto,
 } from './invoices.dto';
 import { InvoicesService } from './invoices.service';
 
@@ -16,13 +15,8 @@ export class InvoicesController {
   constructor(private invoices: InvoicesService) {}
 
   @Get() @RequirePermission('invoices.read')
-  list(
-    @Query() dto: PaginationDto,
-    @Query('status') status?: string,
-    @Query('customerId') customerId?: string,
-    @Query('jobId') jobId?: string,
-  ) {
-    return this.invoices.list({ ...dto, status, customerId, jobId });
+  list(@Query() dto: ListInvoicesDto) {
+    return this.invoices.list(dto);
   }
 
   @Get('aging') @RequirePermission('invoices.read')

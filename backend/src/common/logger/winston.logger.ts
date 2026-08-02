@@ -17,7 +17,8 @@ export function createAppLogger() {
     winston.format.colorize({ all: true }),
     winston.format.printf(({ timestamp, level, message, context, stack }) => {
       const ctx = context ? ` [${context}]` : '';
-      return `${timestamp} ${level}${ctx} ${stack || message}`;
+      const body = typeof stack === 'string' && stack ? `${message}\n${stack}` : message;
+      return `${timestamp} ${level}${ctx} ${body}`;
     }),
   );
 

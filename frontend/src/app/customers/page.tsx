@@ -13,6 +13,7 @@ import { api, downloadCsv, hasPermission } from '@/lib/api';
 import { fmtDate, fmtMoney } from '@/lib/utils';
 import { CreditPanel } from './credit-panel';
 import { CustomerModal } from './customer-form';
+import { StatementPanel } from './statement-panel';
 
 interface Customer {
   id: string; code: string; companyName: string; pic?: string | null; paymentTerm?: string | null;
@@ -41,6 +42,7 @@ export default function CustomersPage() {
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Customer | 'new' | null>(null);
   const [creditFor, setCreditFor] = useState<Customer | null>(null);
+  const [statementFor, setStatementFor] = useState<Customer | null>(null);
   // Phase B: credit standing on the list, plus an "at risk" view driven by the
   // same dry-run report enforcement uses — one rule, not a second definition.
   const [creditFilter, setCreditFilter] = useState<'' | 'atRisk'>('');
@@ -142,6 +144,7 @@ export default function CustomersPage() {
             <td className="td"><StatusBadge status={c.status ?? 'ACTIVE'} /></td>
             <td className="td whitespace-nowrap">
               <button className="text-primary hover:underline text-sm mr-2" onClick={() => setCreditFor(c)}>Credit</button>
+              <button className="text-primary hover:underline text-sm mr-2" onClick={() => setStatementFor(c)}>Statement</button>
               {canWrite && <>
                 <button className="text-primary hover:underline text-sm mr-2" onClick={() => setEditing(c)}>Edit</button>
                 {hasPermission('ratings.write') && <button className="text-amber-500 hover:underline text-sm mr-2" onClick={() => setRating(c)}><Star size={13} className="inline" /> Rate</button>}
@@ -155,6 +158,7 @@ export default function CustomersPage() {
 
       {editing && <CustomerModal customer={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {creditFor && <CreditPanel customerId={creditFor.id} customerName={creditFor.companyName} onClose={() => setCreditFor(null)} />}
+      {statementFor && <StatementPanel customerId={statementFor.id} customerName={statementFor.companyName} onClose={() => setStatementFor(null)} />}
       {rating && <RatingModal customer={rating} onClose={() => setRating(null)} />}
       {showRanking && <RankingModal onClose={() => setShowRanking(false)} />}
       {showImport && (

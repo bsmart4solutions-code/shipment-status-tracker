@@ -1,10 +1,9 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { RequirePermission } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { PaginationDto } from '../../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
-import { CreateVendorDto, UpdateVendorDto } from './vendors.dto';
+import { CreateVendorDto, ListVendorsDto, UpdateVendorDto } from './vendors.dto';
 import { VendorsService } from './vendors.service';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -13,7 +12,7 @@ export class VendorsController {
   constructor(private vendors: VendorsService) {}
 
   @Get() @RequirePermission('vendors.read')
-  list(@Query() dto: PaginationDto, @Query('status') status?: string) { return this.vendors.list({ ...dto, status }); }
+  list(@Query() dto: ListVendorsDto) { return this.vendors.list(dto); }
 
   @Get('ranking') @RequirePermission('vendors.read')
   ranking() { return this.vendors.ranking(); }

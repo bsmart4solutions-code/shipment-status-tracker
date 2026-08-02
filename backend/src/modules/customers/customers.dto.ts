@@ -3,6 +3,14 @@ import {
   IsArray, IsBoolean, IsDateString, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, Max,
   Min, ValidateNested,
 } from 'class-validator';
+import { PaginationDto } from '../../common/dto/pagination.dto';
+
+// The global ValidationPipe runs with forbidNonWhitelisted, so list filters must
+// be declared on the DTO — extra @Query() params would be rejected (was the bug
+// tracked in TODO.md).
+export class ListCustomersDto extends PaginationDto {
+  @IsOptional() @IsIn(['ACTIVE', 'INACTIVE']) status?: string;
+}
 
 // ── Child rows ──────────────────────────────────────────────────────
 
@@ -146,4 +154,10 @@ export class CreateCustomerDto {
 
 export class UpdateCustomerDto extends CreateCustomerDto {
   @IsOptional() @IsString() declare companyName: string;
+}
+
+export class SendStatementDto {
+  @IsOptional() @IsEmail() to?: string;
+  @IsOptional() @IsString() message?: string;
+  @IsOptional() @IsDateString() asOf?: string;
 }

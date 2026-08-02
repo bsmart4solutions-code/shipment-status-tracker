@@ -1,9 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { RequirePermission } from '../../common/decorators/permissions.decorator';
-import { PaginationDto } from '../../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
-import { CompareRatesDto, CreateRateDto, UpdateRateDto } from './rates.dto';
+import { CompareRatesDto, CreateRateDto, ListRatesDto, UpdateRateDto } from './rates.dto';
 import { RatesService } from './rates.service';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -12,8 +11,8 @@ export class RatesController {
   constructor(private rates: RatesService) {}
 
   @Get() @RequirePermission('rates.read')
-  list(@Query() dto: PaginationDto, @Query('vendorId') vendorId?: string, @Query('serviceId') serviceId?: string) {
-    return this.rates.list({ ...dto, vendorId, serviceId });
+  list(@Query() dto: ListRatesDto) {
+    return this.rates.list(dto);
   }
 
   @Get('compare') @RequirePermission('rates.read')

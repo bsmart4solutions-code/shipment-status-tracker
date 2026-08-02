@@ -1,8 +1,18 @@
 import { Type } from 'class-transformer';
 import {
-  IsArray, IsBoolean, IsDateString, IsEmail, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, IsUUID,
+  IsArray, IsBoolean, IsDateString, IsEmail, IsIn, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, IsUUID,
   Min, ValidateNested,
 } from 'class-validator';
+import { PaginationDto } from '../../common/dto/pagination.dto';
+
+// The global ValidationPipe runs with forbidNonWhitelisted, so list filters must
+// be declared on the DTO — extra @Query() params would be rejected (was the bug
+// tracked in TODO.md).
+export class ListInvoicesDto extends PaginationDto {
+  @IsOptional() @IsIn(['DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'CANCELLED']) status?: string;
+  @IsOptional() @IsUUID() customerId?: string;
+  @IsOptional() @IsUUID() jobId?: string;
+}
 
 export class InvoiceItemDto {
   @IsString() description: string;

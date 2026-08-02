@@ -61,6 +61,12 @@ describe('extractRates — ocean FCL sheet parsing (golden tests)', () => {
 });
 
 describe('parseRateSheet — server-side workbook parsing (exceljs round-trip)', () => {
+  // Building and re-reading a real workbook takes ~1.5s alone, which under
+  // parallel load intermittently blew Jest's 5s default (roughly one run in
+  // five). Raised deliberately for this suite only — the flake was slowness,
+  // never a correctness problem.
+  jest.setTimeout(30_000);
+
   const service = new ImportsService(
     {} as never, // prisma unused by parseRateSheet
     {} as never, // sequence unused by parseRateSheet

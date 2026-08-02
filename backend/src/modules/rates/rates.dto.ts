@@ -1,6 +1,15 @@
 import { IsDateString, IsIn, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
+import { PaginationDto } from '../../common/dto/pagination.dto';
 
 const RATE_TYPES = ['FIXED', 'PER_KG', 'PER_CBM', 'PER_TON', 'PER_TRIP', 'PER_CONTAINER', 'PER_SHIPMENT', 'PER_HOUR', 'PER_DAY'] as const;
+
+// The global ValidationPipe runs with forbidNonWhitelisted, so list filters must
+// be declared on the DTO — extra @Query() params would be rejected (was the bug
+// tracked in TODO.md).
+export class ListRatesDto extends PaginationDto {
+  @IsOptional() @IsUUID() vendorId?: string;
+  @IsOptional() @IsUUID() serviceId?: string;
+}
 
 export class CreateRateDto {
   @IsUUID() vendorId: string;

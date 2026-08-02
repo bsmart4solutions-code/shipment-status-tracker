@@ -108,6 +108,18 @@ export class InvoicesService {
     return { rows, totals };
   }
 
+  /**
+   * Overdue is deliberately NOT a state-machine status — PAID is a terminal
+   * edge in `INVOICE_EDGES` and `status` already drives payment/aging/credit
+   * guards throughout this service. It's a derived read-time property instead,
+   * using the same rule `agingReport()` already computes for its buckets.
+   */
+  private overdueInfo(inv: { status: string; dueDate: Date | null }): { isOverdue: boolean; daysOverdue: number | null } {
+    if (!inv.dueDate || !['ISSUED', 'PARTIALLY_PAID'].includes(inv.status)) return { isOverdue: false, daysOverdue: null };
+    const daysOverdue = Math.floor((Date.now() - inv.dueDate.getTime()) / 86400000);
+    return { isOverdue: daysOverdue > 0, daysOverdue };
+  }
+
   async list(dto: PaginationDto & { status?: string; customerId?: string; jobId?: string }) {
     const where: Prisma.InvoiceWhereInput = {};
     if (dto.search) {
@@ -129,7 +141,7 @@ export class InvoicesService {
       }),
       this.prisma.invoice.count({ where }),
     ]);
-    return paged(items, total, dto);
+    return paged(items.map((inv) => ({ ...inv, ...this.overdueInfo(inv) })), total, dto);
   }
 
   async get(id: string) {
@@ -143,7 +155,7 @@ export class InvoicesService {
       },
     });
     if (!invoice) throw new NotFoundException('Invoice not found');
-    return invoice;
+    return { ...invoice, ...this.overdueInfo(invoice) };
   }
 
   async create(dto: CreateInvoiceDto, userId?: string) {
@@ -601,5 +613,99 @@ export class InvoicesService {
       return { label, count: inBucket.length, total: r2(inBucket.reduce((s, r) => s + r.balance, 0)) };
     });
     return { rows, buckets, totalOutstanding: r2(rows.reduce((s, r) => s + r.balance, 0)) };
+  }
+
+  /**
+   * Statement of Account: a chronological ledger of one customer's invoices,
+   * ISSUED credit/debit notes and payments, with a running balance. The
+   * per-row balance is a native-currency convenience figure; the authoritative
+   * closing balance is `baseCurrencyExposure`, computed through the same
+   * `customerExposure()` used by AR aging and credit control, so this can
+   * never disagree with what credit control sees (same invariant as
+   * `issuedNoteNetMap`).
+   */
+  async customerStatement(customerId: string, asOfDate?: string) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { id: true, companyName: true, code: true, email: true, currency: true },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const asOf = asOfDate ? new Date(asOfDate) : new Date();
+    const invoices = await this.prisma.invoice.findMany({
+      where: { customerId, status: { in: ['ISSUED', 'PARTIALLY_PAID', 'PAID'] }, issueDate: { lte: asOf } },
+      include: { payments: true },
+      orderBy: { issueDate: 'asc' },
+    });
+    const notes = await this.prisma.creditDebitNote.findMany({
+      where: { customerId, status: 'ISSUED', issueDate: { lte: asOf } },
+      select: { noteNumber: true, type: true, totalAmount: true, currency: true, issueDate: true },
+    });
+
+    type Entry = { date: Date; type: string; ref: string; currency: string; debit: number; credit: number };
+    const entries: Entry[] = [];
+    for (const inv of invoices) {
+      entries.push({ date: inv.issueDate, type: 'INVOICE', ref: inv.invoiceNumber, currency: inv.currency, debit: Number(inv.totalAmount), credit: 0 });
+      for (const p of inv.payments) {
+        if (p.paidAt > asOf) continue;
+        entries.push({ date: p.paidAt, type: 'PAYMENT', ref: inv.invoiceNumber, currency: inv.currency, debit: 0, credit: Number(p.amount) });
+      }
+    }
+    for (const n of notes) {
+      if (n.type === 'CREDIT') entries.push({ date: n.issueDate, type: 'CREDIT_NOTE', ref: n.noteNumber, currency: n.currency, debit: 0, credit: Number(n.totalAmount) });
+      else entries.push({ date: n.issueDate, type: 'DEBIT_NOTE', ref: n.noteNumber, currency: n.currency, debit: Number(n.totalAmount), credit: 0 });
+    }
+    entries.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    let running = 0;
+    const rows = entries.map((e) => {
+      running = r2(running + e.debit - e.credit);
+      return { ...e, balance: running };
+    });
+    const mixedCurrency = new Set(entries.map((e) => e.currency)).size > 1;
+
+    const { exposure, fxWarning } = await this.customerExposure(customerId);
+
+    return {
+      customer: { id: customer.id, name: customer.companyName, code: customer.code, email: customer.email, currency: customer.currency },
+      asOfDate: asOf,
+      rows,
+      mixedCurrency,
+      nativeClosingBalance: r2(running),
+      baseCurrencyExposure: exposure,
+      fxWarning,
+    };
+  }
+
+  /** Email a customer's Statement of Account — same send/audit shape as `email()`. */
+  async emailStatement(customerId: string, to: string | undefined, message: string | undefined, userId?: string, asOfDate?: string) {
+    const statement = await this.customerStatement(customerId, asOfDate);
+    const recipient = to || statement.customer.email;
+    if (!recipient) throw new BadRequestException('Customer has no email address — provide a recipient');
+
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const rowsHtml = statement.rows.map((r) => `
+      <tr>
+        <td>${r.date.toISOString().slice(0, 10)}</td>
+        <td>${esc(r.type)}</td>
+        <td>${esc(r.ref)}</td>
+        <td align="right">${r.debit ? `${esc(r.currency)} ${r.debit.toFixed(2)}` : ''}</td>
+        <td align="right">${r.credit ? `${esc(r.currency)} ${r.credit.toFixed(2)}` : ''}</td>
+        <td align="right">${esc(r.currency)} ${r.balance.toFixed(2)}</td>
+      </tr>`).join('');
+    const html = `
+      <p>Dear ${esc(statement.customer.name)},</p>
+      ${message ? `<p>${esc(message)}</p>` : ''}
+      <p>Statement of Account as of ${statement.asOfDate.toISOString().slice(0, 10)}:</p>
+      <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse">
+        <tr><th>Date</th><th>Type</th><th>Ref</th><th>Debit</th><th>Credit</th><th>Balance</th></tr>
+        ${rowsHtml}
+      </table>
+      <p><strong>Closing balance: ${esc(statement.customer.currency || 'MYR')} ${statement.nativeClosingBalance.toFixed(2)}</strong></p>
+      <p>Regards</p>`;
+
+    const result = await this.mail.send(recipient, `Statement of Account — ${statement.customer.name}`, html);
+    await this.audit.log({ userId, action: 'EMAIL', entityType: 'customer', entityId: customerId, detail: { to: recipient, simulated: result.simulated, kind: 'statement' } });
+    return { ...result, to: recipient };
   }
 }

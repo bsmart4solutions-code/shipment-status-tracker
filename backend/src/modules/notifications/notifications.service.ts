@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { NotificationType } from '@prisma/client';
+import { MailService } from '../../common/mail.service';
 import { PrismaService } from '../../common/prisma.service';
 import { SettingsService } from '../../common/settings.service';
 
@@ -14,7 +15,7 @@ import { SettingsService } from '../../common/settings.service';
 export class NotificationsService {
   private logger = new Logger(NotificationsService.name);
 
-  constructor(private prisma: PrismaService, private settings: SettingsService) {}
+  constructor(private prisma: PrismaService, private settings: SettingsService, private mail: MailService) {}
 
   /** The scan engine was fully built but never wired to a scheduler — this activates it. */
   @Cron(CronExpression.EVERY_30_MINUTES)
@@ -120,20 +121,35 @@ export class NotificationsService {
       created++;
     }
 
-    // 6. Customer payment due — jobs completed, payment term elapsed (proxy until invoicing module lands)
-    const completed = await this.prisma.job.findMany({
-      where: { status: 'COMPLETED' },
-      include: { customer: { select: { companyName: true, paymentTerm: true } } },
+    // 6. Overdue invoices — in-app alert (deduped weekly) + reminder email
+    // (at most once every 7 days, tracked via Invoice.lastReminderAt). Real
+    // invoice due dates now exist, so this replaces the old job-completion
+    // payment-due proxy.
+    const weekPeriod = Math.floor(now.getTime() / (7 * 86400000));
+    const overdueInvoices = await this.prisma.invoice.findMany({
+      where: { status: { in: ['ISSUED', 'PARTIALLY_PAID'] }, dueDate: { lt: now } },
+      include: { customer: { select: { companyName: true, email: true } } },
     });
-    for (const j of completed) {
-      const term = parseInt((j.customer.paymentTerm ?? '').replace(/\D/g, ''), 10);
-      if (!term) continue;
-      const due = new Date(j.updatedAt.getTime() + term * 86400000);
-      if (due < now) {
-        await this.push('PAYMENT_DUE', 'Customer payment due',
-          `${j.customer.companyName} — ${j.jobNumber} payment was due ${due.toISOString().slice(0, 10)}`,
-          'job', j.id, `PDUE:${j.id}`);
-        created++;
+    for (const inv of overdueInvoices) {
+      await this.push('INVOICE_OVERDUE', 'Invoice overdue',
+        `${inv.invoiceNumber} (${inv.customer.companyName}) was due ${inv.dueDate?.toISOString().slice(0, 10)}`,
+        'invoice', inv.id, `OVERDUE:${inv.id}:${weekPeriod}`);
+      created++;
+
+      const reminderStale = !inv.lastReminderAt || now.getTime() - inv.lastReminderAt.getTime() > 7 * 86400000;
+      if (reminderStale && inv.customer.email) {
+        const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const balance = (Number(inv.totalAmount) - Number(inv.amountPaid)).toFixed(2);
+        const html = `<p>Dear ${esc(inv.customer.companyName)},</p>
+          <p>Invoice <strong>${esc(inv.invoiceNumber)}</strong> was due on ${inv.dueDate?.toISOString().slice(0, 10)} and remains outstanding.</p>
+          <p><strong>Balance due: ${esc(inv.currency)} ${balance}</strong></p>
+          <p>Please arrange payment at your earliest convenience.</p>`;
+        try {
+          await this.mail.send(inv.customer.email, `Payment reminder — Invoice ${inv.invoiceNumber}`, html);
+          await this.prisma.invoice.update({ where: { id: inv.id }, data: { lastReminderAt: now } });
+        } catch (e) {
+          this.logger.error(`Overdue reminder email failed for ${inv.invoiceNumber}`, e as Error);
+        }
       }
     }
 

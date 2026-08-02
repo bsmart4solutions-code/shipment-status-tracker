@@ -3,11 +3,19 @@ import {
   IsArray, IsBoolean, IsDateString, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, Min,
   ValidateNested,
 } from 'class-validator';
+import { PaginationDto } from '../../common/dto/pagination.dto';
 
 const VENDOR_TYPES = [
   'SHIPPING_LINE', 'HAULIER', 'FORWARDING_AGENT', 'CUSTOMS_BROKER', 'WAREHOUSE',
   'COURIER', 'AIRLINE', 'SUPPLIER', 'OTHER',
 ] as const;
+
+// The global ValidationPipe runs with forbidNonWhitelisted, so list filters must
+// be declared on the DTO — extra @Query() params would be rejected (was the bug
+// tracked in TODO.md).
+export class ListVendorsDto extends PaginationDto {
+  @IsOptional() @IsIn(['ACTIVE', 'INACTIVE']) status?: string;
+}
 
 // ── Child rows ──────────────────────────────────────────────────────
 

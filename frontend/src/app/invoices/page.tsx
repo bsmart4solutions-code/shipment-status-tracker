@@ -22,6 +22,7 @@ interface InvoiceRow {
   totalAmount: string; amountPaid: string; status: string; issueDate: string; dueDate: string | null;
   notes: string | null; customerId: string; jobId: string | null;
   customer: { companyName: string; code: string }; job: { jobNumber: string } | null;
+  isOverdue: boolean; daysOverdue: number | null;
 }
 
 export default function InvoicesPage() {
@@ -90,7 +91,16 @@ export default function InvoicesPage() {
               {cols.show('Paid') && <td className="td text-emerald-600">{fmtMoney(inv.amountPaid, inv.currency)}</td>}
               {cols.show('Balance') && <td className={`td font-medium ${balance > 0 ? 'text-red-500' : ''}`}>{fmtMoney(balance, inv.currency)}</td>}
               {cols.show('Due Date') && <td className="td text-gray-500">{fmtDate(inv.dueDate)}</td>}
-              {cols.show('Status') && <td className="td"><StatusBadge status={inv.status} /></td>}
+              {cols.show('Status') && (
+                <td className="td">
+                  <StatusBadge status={inv.status} />
+                  {inv.isOverdue && (
+                    <span className="badge ml-1.5 bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300" title={`${inv.daysOverdue} day(s) past due`}>
+                      Overdue
+                    </span>
+                  )}
+                </td>
+              )}
               <td className="td">
                 <div className="flex gap-2 flex-wrap justify-end">
                   {canWrite && inv.status === 'DRAFT' && (
