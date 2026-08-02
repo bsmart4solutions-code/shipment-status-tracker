@@ -5,11 +5,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Shell } from '@/components/shell';
 import { Card, ErrorText, Modal, Table } from '@/components/ui';
 import { api, hasPermission } from '@/lib/api';
+import { fmtDate } from '@/lib/utils';
 
 interface User { id: string; email: string; fullName: string; phone: string | null; isActive: boolean; roleId: string; role: { name: string } }
 interface Role { id: string; name: string; permissions: { permission: { id: string; code: string } }[]; _count: { users: number } }
 interface Permission { id: string; code: string; label: string }
 interface Setting { key: string; value: unknown }
+interface FxRate { id: string; baseCurrency: string; quoteCurrency: string; rate: string; effectiveDate: string }
 
 export default function SettingsPage() {
   const canUsers = hasPermission('users.read');
@@ -19,11 +21,150 @@ export default function SettingsPage() {
     <Shell title="Settings">
       <div className="space-y-6">
         {canSettings && <CompanyProfileSection />}
+        {canSettings && <ExchangeRatesSection />}
         {canUsers && <UsersSection />}
         {canUsers && <RolesSection />}
         {canSettings && <SystemSettingsSection />}
       </div>
     </Shell>
+  );
+}
+
+/**
+ * Exchange rates.
+ *
+ * Credit control fails closed on an unresolvable rate, and several screens
+ * tell the user to "add the rate and try again" — until this section existed
+ * there was nowhere in the app to do that, and a customer invoiced in an
+ * unrated currency could not be unblocked without database access.
+ *
+ * A row means: 1 <from> = <rate> <to>. `FxService.toBase()` resolves a pair
+ * either directly (CUR -> base) or inversely (base -> CUR), so ONE side must
+ * be the base currency; a foreign-to-foreign pair is stored but can never be
+ * used, and is flagged as such rather than silently doing nothing.
+ */
+function ExchangeRatesSection() {
+  const qc = useQueryClient();
+  const canWrite = hasPermission('settings.write');
+  const { data: rates } = useQuery({ queryKey: ['fx'], queryFn: () => api<FxRate[]>('/fx') });
+  const { data: baseInfo } = useQuery({
+    queryKey: ['fx-base'],
+    queryFn: () => api<{ baseCurrency: string }>('/fx/base-currency'),
+  });
+  const base = baseInfo?.baseCurrency ?? '';
+
+  const [form, setForm] = useState({ from: '', to: '', rate: '', effectiveDate: '' });
+  // Default the "to" side to the base currency once it loads — that is the
+  // pair shape the conversion engine actually needs.
+  if (base && !form.to) setForm((f) => ({ ...f, to: base }));
+
+  const add = useMutation({
+    mutationFn: () => api('/fx', {
+      method: 'POST',
+      body: JSON.stringify({
+        baseCurrency: form.from.trim().toUpperCase(),
+        quoteCurrency: form.to.trim().toUpperCase(),
+        rate: Number(form.rate),
+        effectiveDate: form.effectiveDate || undefined,
+      }),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['fx'] });
+      // Everything that converts money is now stale.
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      setForm({ from: '', to: base, rate: '', effectiveDate: '' });
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => api(`/fx/${id}`, { method: 'DELETE' }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['fx'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); },
+  });
+
+  const usable = (r: FxRate) => !base || r.baseCurrency === base || r.quoteCurrency === base;
+  const valid = form.from.trim() && form.to.trim() && Number(form.rate) > 0
+    && form.from.trim().toUpperCase() !== form.to.trim().toUpperCase();
+
+  return (
+    <Card>
+      <h3 className="font-semibold mb-1">Exchange Rates</h3>
+      <p className="text-xs text-gray-500 mb-3">
+        Every multi-currency figure — dashboard totals, P&amp;L, AR exposure and the credit check — converts to
+        the company base currency{base ? <> (<strong>{base}</strong>)</> : null} through these rates.
+        A customer invoiced in a currency with no rate <strong>cannot be credit-checked and cannot be invoiced</strong>,
+        so add the rate here to unblock them.
+      </p>
+
+      <Table head={['Rate', 'Effective From', 'Usable', '']} empty={rates?.length === 0}>
+        {rates?.map((r) => (
+          <tr key={r.id}>
+            <td className="td font-medium">
+              1 {r.baseCurrency} = {Number(r.rate).toLocaleString(undefined, { maximumFractionDigits: 6 })} {r.quoteCurrency}
+            </td>
+            <td className="td text-gray-500">{fmtDate(r.effectiveDate)}</td>
+            <td className="td">
+              {usable(r)
+                ? <span className="text-emerald-600 text-sm">✓</span>
+                : <span className="badge bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                    title={`Neither side is ${base}, so conversions to ${base} cannot use this rate`}>Never used</span>}
+            </td>
+            <td className="td">
+              {canWrite && (
+                <button className="text-red-500 hover:underline text-sm"
+                  onClick={() => { if (confirm(`Delete the rate 1 ${r.baseCurrency} = ${r.rate} ${r.quoteCurrency}?`)) remove.mutate(r.id); }}>
+                  Delete
+                </button>
+              )}
+            </td>
+          </tr>
+        ))}
+      </Table>
+
+      {canWrite && (
+        <form className="mt-4 border-t border-gray-200 dark:border-gray-800 pt-3"
+          onSubmit={(e) => { e.preventDefault(); if (valid) add.mutate(); }}>
+          <div className="text-xs text-gray-500 uppercase font-semibold mb-2">Add Rate</div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 items-end">
+            <div>
+              <label className="label !text-xs">1 unit of</label>
+              <input className="input uppercase" placeholder="USD" maxLength={3} value={form.from}
+                onChange={(e) => setForm((f) => ({ ...f, from: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label !text-xs">equals</label>
+              <input className="input text-right" type="number" step="0.000001" min="0" placeholder="4.45"
+                value={form.rate} onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label !text-xs">of</label>
+              <input className="input uppercase" placeholder={base || 'MYR'} maxLength={3} value={form.to}
+                onChange={(e) => setForm((f) => ({ ...f, to: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label !text-xs">Effective from</label>
+              <input className="input" type="date" value={form.effectiveDate}
+                onChange={(e) => setForm((f) => ({ ...f, effectiveDate: e.target.value }))} />
+            </div>
+            <button className="btn-primary justify-center" disabled={!valid || add.isPending}>
+              {add.isPending ? 'Saving…' : 'Add Rate'}
+            </button>
+          </div>
+
+          {valid && base && form.from.trim().toUpperCase() !== base && form.to.trim().toUpperCase() !== base && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+              Neither side is {base}. This rate will be saved but never used — conversions always resolve to {base},
+              so one side must be {base}.
+            </p>
+          )}
+          <p className="text-[11px] text-gray-400 mt-2">
+            Leave the date blank for today. Adding a newer rate does not rewrite history: figures that must stay
+            stable (job cost variance, AP) resolve the rate in effect on the document&apos;s own date.
+          </p>
+          <ErrorText error={add.error} />
+        </form>
+      )}
+      <ErrorText error={remove.error} />
+    </Card>
   );
 }
 

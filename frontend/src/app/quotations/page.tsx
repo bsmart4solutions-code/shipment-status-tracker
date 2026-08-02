@@ -218,6 +218,10 @@ function SectionHeader({ icon: Icon, title, action }: { icon: React.ElementType;
 function QuotationBuilder({ editId, onClose }: { editId?: string; onClose: () => void }) {
   const qc = useQueryClient();
   const [customerId, setCustomerId] = useState('');
+  // Blank means "me": the server defaults salesPersonId to the creating user.
+  // Setting it explicitly is for raising a quote on a colleague's behalf, or
+  // reassigning one when someone leaves.
+  const [salesPersonId, setSalesPersonId] = useState('');
   const [currency, setCurrency] = useState('MYR');
   const [discountPct, setDiscountPct] = useState(0);
   const [serviceChargePct, setServiceChargePct] = useState(0);
@@ -259,6 +263,7 @@ function QuotationBuilder({ editId, onClose }: { editId?: string; onClose: () =>
   });
   if (editId && editQuote && !hydrated) {
     setCustomerId(editQuote.customerId);
+    setSalesPersonId(editQuote.salesPersonId ?? '');
     setCurrency(editQuote.currency);
     setDiscountPct(Number(editQuote.discountPct));
     setServiceChargePct(Number(editQuote.serviceChargePct));
@@ -294,6 +299,13 @@ function QuotationBuilder({ editId, onClose }: { editId?: string; onClose: () =>
   }
 
   const { data: customers } = useQuery({ queryKey: ['customers-all'], queryFn: () => api<{ items: { id: string; companyName: string }[] }>('/customers?pageSize=200') });
+  // Only users.read holders can list users; without it the field stays hidden
+  // and the server's "default to me" behaviour applies unchanged.
+  const { data: users } = useQuery({
+    queryKey: ['users-active'],
+    queryFn: () => api<{ id: string; fullName: string; isActive: boolean; role: { name: string } }[]>('/users'),
+    enabled: hasPermission('users.read'),
+  });
   const { data: services } = useQuery({ queryKey: ['services'], queryFn: () => api<{ id: string; name: string }[]>('/services') });
   const { data: vendors } = useQuery({ queryKey: ['vendors-all'], queryFn: () => api<{ items: { id: string; name: string }[] }>('/vendors?pageSize=200') });
   const { data: fxRates } = useQuery({ queryKey: ['fx'], queryFn: () => api<{ baseCurrency: string; quoteCurrency: string; rate: string }[]>('/fx').catch(() => []) });
@@ -347,6 +359,7 @@ function QuotationBuilder({ editId, onClose }: { editId?: string; onClose: () =>
       method: editId ? 'PUT' : 'POST',
       body: JSON.stringify({
         customerId, currency, discountPct, serviceChargePct, miscCharge, taxPct, remark,
+        salesPersonId: salesPersonId || undefined,
         subject: subject || undefined, yourRef: yourRef || undefined, attn: attn || undefined,
         pol: pol || undefined, pod: pod || undefined, finalDestination: finalDestination || undefined,
         modeOfTransport: modeOfTransport || undefined, shipmentType: shipmentType || undefined,
@@ -389,6 +402,19 @@ function QuotationBuilder({ editId, onClose }: { editId?: string; onClose: () =>
               <div><label className="label">Quote Currency</label>
                 <select className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></div>
               <div><label className="label">SST %</label><input className="input" type="number" step="0.01" min="0" value={taxPct} onChange={(e) => setTaxPct(Number(e.target.value))} /></div>
+              {users && (
+                <div className="col-span-2">
+                  <label className="label">
+                    Salesperson <span className="text-gray-400 font-normal">(blank = you; their phone and email print on the quotation)</span>
+                  </label>
+                  <SearchableSelect
+                    value={salesPersonId}
+                    onChange={setSalesPersonId}
+                    placeholder="Default: you"
+                    options={users.filter((u) => u.isActive).map((u) => ({ value: u.id, label: u.fullName, sublabel: u.role.name }))}
+                  />
+                </div>
+              )}
               <div className="col-span-2">
                 <label className="label">Attn <span className="text-gray-400 font-normal">(contact person)</span></label>
                 <input className="input" placeholder="e.g. MR JAMES" value={attn} onChange={(e) => setAttn(e.target.value)} />

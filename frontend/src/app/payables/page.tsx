@@ -13,6 +13,7 @@ import { Shell } from '@/components/shell';
 import { ErrorText, Pagination, StatusBadge, Table } from '@/components/ui';
 import { api, hasPermission } from '@/lib/api';
 import { fmtDate, fmtMoney } from '@/lib/utils';
+import { exportToXlsx } from '@/lib/xlsx-export';
 import { BillForm } from './bill-form';
 import { PaymentDialog } from './payment-dialog';
 import { ApAgingModal } from './ap-aging';
@@ -53,9 +54,21 @@ export default function PayablesPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['payables'] }),
   });
 
+  // Finance reconciles AP against the vendor's own statement, so the export
+  // carries the vendor invoice number and the outstanding balance, not just
+  // our internal bill number.
+  const exportXlsx = () => exportToXlsx('payables.xlsx', (data?.items ?? []).map((b) => ({
+    'Bill #': b.billNumber, 'Vendor Invoice #': b.vendorInvoiceNo, Vendor: b.vendor.name,
+    'Vendor Code': b.vendor.code, Job: b.job?.jobNumber ?? '',
+    Currency: b.currency, Subtotal: Number(b.subtotal), Tax: Number(b.taxAmt),
+    Total: Number(b.totalAmount), Paid: Number(b.amountPaid), Outstanding: Number(b.outstanding),
+    'Bill Date': fmtDate(b.billDate), 'Due Date': fmtDate(b.dueDate), Status: b.status,
+  })));
+
   return (
     <Shell title="Payables" actions={
       <div className="flex gap-2">
+        <button className="btn-ghost" onClick={exportXlsx}>Export Excel</button>
         <button className="btn-ghost" onClick={() => setShowAging(true)}><Clock size={15} /> AP Aging</button>
         {canWrite && <button className="btn-primary" onClick={() => setEditing('new')}><Plus size={15} /> New Bill</button>}
       </div>
