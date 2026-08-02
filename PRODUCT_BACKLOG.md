@@ -3,7 +3,7 @@
 **Owner:** Product Owner
 **Sources:** `BUSINESS_AUDIT.md` (module coverage, ~34% weighted) · `PROJECT_AUDIT.md` (technical/NFR, 8.0/10)
 **Target segment for prioritization:** Small freight forwarder / NVOCC — commercial front-office (quote → job → invoice → collect) with in-house operators.
-**Date:** 2026-07-20 · **Last reconciled:** 2026-07-28 (Sprint 03 close-out — see `SPRINT_03_CLOSE.md`)
+**Date:** 2026-07-20 · **Last reconciled:** 2026-08-02 (Sprint 06 close-out / **MVP GA** — see `SPRINT_06_REPORT.md`)
 
 ### Priority definitions
 - **P0** — Go-live blocker for the target segment, or a critical risk (data loss / compliance / unsupported dependency).
@@ -25,13 +25,13 @@
 | P0-1 | ✅ **DONE (Sprint 01, 2026-07-20)** — **Credit Note** (issue against invoice, tax reversal, apply to AR) | ★★★ SST compliance for corrections/returns | M | Invoice, AR | BA §18 |
 | P0-2 | ✅ **DONE (Sprint 01, 2026-07-20)** — **Debit Note** (post-invoice extra charge, tax, AR posting) | ★★★ compliant billing of late charges | S–M | P0-1 shares model | BA §19 |
 | P0-3 | ✅ **DONE (Sprint 03, 2026-07-28)** — **Accounts Payable — vendor bill capture + payments + reversal + AP aging + job cost variance** | ★★★ know payables to carriers/hauliers; cost control | L | Vendor master, Jobs | BA §16 |
-| P0-4 | **Booking object + shipment operational milestones** (Booked→Gated-in→Loaded→Departed→Arrived→Delivered) | ★★★ the missing core forwarding step | L | Quotation→Job | BA §4, §5 |
+| P0-4 | ✅ **DONE (Sprint 06, 2026-08-02)** — **Booking object + shipment operational milestones** (Booked→Gated-in→Loaded→Departed→Arrived→Delivered), forward-only and enforced; confirming a booking opens the shipment file | ★★★ the missing core forwarding step | L | Quotation→Job | BA §4, §5 |
 | P0-5 | ✅ **DONE (Sprint 02, 2026-07-21)** — **Persistent document storage (S3 / Cloudflare R2)** via Storage Driver abstraction; production env cutover pending (see `TODO.md`) | ★★★ prevents loss of BL/PDF/OCR files on redeploy | M | Documents module | PA §7-4, BA §21 |
 | P0-6 | ✅ **DONE (Sprint 02, 2026-07-21)** — **Replace `xlsx` (SheetJS)** with `exceljs` + server-side parse; `xlsx` removed from both tiers | ★★ removes the only no-patch security dependency | M | Rate import, exports | PA §7-1 |
 | P0-7 | ✅ **DONE (Sprint 04, 2026-07-29)** — **Credit-limit enforcement** — hard block at invoice issue, credit hold, MIN(creditLimit, outstandingLimit), audited override | ★★★ core credit control; data already captured | S | Customer master, AR | BA §1, §15 |
-| P0-8 | **AR overdue automation + Customer Statement (SOA)** | ★★★ collections + `receiveStatementsByEmail` fulfilled | M | Invoice, AR, Email | BA §15 |
+| P0-8 | ✅ **DONE (Sprint 05, 2026-08-02)** — **AR overdue automation + Customer Statement (SOA)** — computed overdue (not a new invoice status) + deduped daily alert + rate-limited reminder email + per-customer ledger with running balance | ★★★ collections + `receiveStatementsByEmail` fulfilled | M | Invoice, AR, Email | BA §15 |
 
-**P0 subtotal effort:** ~14–20 dev-weeks originally. **6 of 8 complete as at Sprint 04 (2026-07-29)**; the two remaining (P0-4 L, P0-8 M) are ~6–8 dev-weeks.
+**P0 subtotal effort:** ~14–20 dev-weeks originally. ✅ **All 8 complete as at Sprint 06 (2026-08-02) — MVP GA gate met on code.** The one outstanding go-live item is not development: the R2 production storage cutover (`STORAGE.md` §3, `SPRINT_06_REPORT.md` §12) needs the owner's Cloudflare + Render accounts.
 
 ---
 

@@ -22,14 +22,20 @@ Actual sequence:
 | **02A** | Remediation — production storage configuration gate | — | ✅ Closed |
 | **03** | Accounts Payable (Phase A core + Phase B cost variance) | P0-3 | ✅ Closed |
 | **03A** | Remediation — VOID/invoice-number release, bill-date FX, P2002 → 409 | — | ✅ Closed |
-| **04** | Credit-limit enforcement + integration-test rung + R2 cutover | P0-7, T-6 | ⬜ Not started |
-| **05** | AR overdue automation + Customer Statement (SOA) | P0-8 | ⬜ Not started |
-| **06** | Booking + shipment milestones → **MVP GA** | P0-4 | ⬜ Not started |
+| **04** | Credit-limit enforcement + integration-test rung + R2 cutover | P0-7, T-6 | ✅ Closed (2026-07-29) |
+| **05** | AR overdue automation + Customer Statement (SOA) | P0-8 | ✅ Closed (2026-08-02) |
+| **06** | Booking + shipment milestones → **MVP GA** | P0-4 | ✅ Closed (2026-08-02) |
 
-**5 of 8 P0 items complete.** MVP GA now falls after **Sprint 06** — one sprint
-later than originally drawn, the cost of inserting the deferred hardening work.
-The sprint bodies below are retained as written; read the table above for the
-authoritative sequence and the numbering.
+🎯 **All 8 P0 items complete — MVP GA reached on 2026-08-02** (see
+`SPRINT_06_REPORT.md` §9 for the exit-criteria checklist). The one outstanding
+go-live action is not development: the **R2 production storage cutover**
+(`STORAGE.md` §3), which needs the owner's Cloudflare + Render accounts. Until
+it is done, production documents are ephemeral.
+
+Next up is Phase 3 (fast-follow to R1): accounting integration, shipping
+documents + task engine, structured parties/containers/rate depth, and the
+Customer Portal. The sprint bodies below are retained as written; read the
+table above for the authoritative sequence and the numbering.
 
 ---
 
@@ -73,7 +79,7 @@ authoritative sequence and the numbering.
 - AP aging report buckets payables by due date; per-vendor totals correct.
 - Bill status lifecycle (Draft → Approved → Paid) enforced; audit-logged.
 
-### Sprint 3 — Credit Control + Collections — ⬜ **now Sprints 04–05** (2 wks, ~4 dw)
+### Sprint 3 — Credit Control + Collections — ✅ **delivered as Sprints 04–05** (2 wks, ~4 dw)
 **Goal:** Control customer credit and get paid.
 **Scope:** P0-7 credit-limit enforcement (quote/booking) · P0-8 AR overdue automation + Customer Statement (SOA).
 **Acceptance criteria:**
@@ -85,7 +91,7 @@ authoritative sequence and the numbering.
 
 ## Phase 2 — Operations Backbone
 
-### Sprint 4 — Booking — ⬜ **now Sprint 06** (2 wks, ~4–5 dw)
+### Sprint 4 — Booking — ✅ **delivered as Sprint 06** (2 wks, ~4–5 dw)
 **Goal:** Introduce the missing core forwarding step.
 **Scope:** P0-4a Booking object created from a won quote (carrier/booking no., cut-off dates, booking status lifecycle).
 **Acceptance criteria:**
@@ -93,7 +99,7 @@ authoritative sequence and the numbering.
 - Booking carries carrier, booking no., SI/VGM cut-off dates; status Draft → Confirmed → Cancelled enforced.
 - Converting a booking creates/links the shipment Job (no double-entry of parties).
 
-### Sprint 5 — Shipment Milestones → **MVP GA** — ⬜ **now Sprint 06** (2 wks, ~4 dw)
+### Sprint 5 — Shipment Milestones → **MVP GA** — ✅ **delivered as Sprint 06** (2 wks, ~4 dw)
 **Goal:** Operate a shipment file at milestone level; ship MVP.
 **Scope:** P0-4b operational milestones (Booked→Gated-in→Loaded→Departed→Arrived→Delivered) on the Job file + milestone timeline on Dashboard.
 **Acceptance criteria:**
@@ -102,6 +108,10 @@ authoritative sequence and the numbering.
 - **MVP exit criteria (MVP_SCOPE §4) all pass; no P0 open → tag MVP GA.**
 
 **🎯 Release gate: MVP GA** — a small forwarder can quote → book → operate → bill (incl. CN/DN) → track AR/AP → collect, on durable storage.
+**Status: ✅ REACHED 2026-08-02.** All exit criteria pass on code
+(`SPRINT_06_REPORT.md` §9). "On durable storage" is satisfied by the shipped
+S3/R2 driver but is **not live until the owner completes the R2 cutover** —
+the one remaining action, and a configuration one.
 
 ---
 

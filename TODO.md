@@ -5,28 +5,46 @@ Working list maintained at the end of each sprint. Backlog priorities live in
 
 ## Bugs discovered (pre-existing, not yet fixed)
 
-- [ ] **List-filter query params return 400 on quotations / invoices / jobs.**
-  The global ValidationPipe runs with `forbidNonWhitelisted: true`, but these
-  controllers declare filters (`status`, `customerId`, `salesPersonId`, `from`,
-  `to`) as extra `@Query('...')` params next to `@Query() dto: PaginationDto` —
-  the pipe validates the whole query object against `PaginationDto` and rejects
-  the extra keys (`property status should not exist`). The UI status filters on
-  those pages therefore fail silently.
-  **Fix pattern (already applied to credit-debit-notes in Sprint 01):** declare a
-  per-module `ListXDto extends PaginationDto` with the filter fields and validate
-  against that. Files: `quotations.controller.ts`, `invoices.controller.ts`,
-  `jobs.controller.ts` (audit the rest of the controllers for the same pattern).
+_(none open — both items below were fixed 2026-08-02)_
 
-- [ ] **Winston console formatter prints `logger.error('message')` as a blank line.**
-  Found during Sprint 02A live verification. In `common/logger/winston.logger.ts`
-  the console format returns `` `${timestamp} ${level}${ctx} ${stack || message}` ``;
-  for a plain string error nest-winston supplies `stack = [null]`, which is
-  truthy and stringifies to `""`, so the message is swallowed. Affects **every**
-  `.error(string)` call app-wide, not just storage. The message is still written
-  correctly to `logs/error.log` and `logs/combined.log`, so nothing is lost —
-  but anyone watching the console (Render's log stream included) sees an empty
-  error line. **Fix:** prefer `message` and append `stack` only when it is a
-  non-empty string. Out of Sprint 02A's approved scope.
+## Bugs fixed
+
+- [x] **List-filter query params returned 400 on quotations / invoices / jobs
+  / customers / vendors / rates.** Fixed 2026-08-02. The global ValidationPipe
+  runs with `forbidNonWhitelisted: true`, but these controllers declared filters
+  (`status`, `customerId`, `salesPersonId`, `from`, `to`, `vendorId`,
+  `serviceId`, etc.) as extra `@Query('...')` params next to `@Query() dto:
+  PaginationDto` — the pipe validated the whole query object against
+  `PaginationDto` and rejected the extra keys. Fixed by declaring a per-module
+  `ListXDto extends PaginationDto` with the filter fields (the pattern already
+  used by `credit-debit-notes` and `payables`) in all six affected controllers:
+  `quotations`, `invoices`, `jobs`, `customers`, `vendors`, `rates`.
+
+- [x] **Winston console formatter printed `logger.error('message')` as a blank
+  line.** Fixed 2026-08-02. In `common/logger/winston.logger.ts` the console
+  format returned `` `${timestamp} ${level}${ctx} ${stack || message}` ``; for a
+  plain string error nest-winston supplies `stack = [null]`, which is truthy and
+  stringifies to `""`, so the message was swallowed. File logs were never
+  affected — only the console stream (Render's log stream included). Fixed by
+  preferring `message` and appending `stack` only when it is a non-empty string.
+
+- [x] **`docker compose up -d --build` could not start the API container —
+  `prisma db seed` crashed at every startup.** Fixed 2026-08-02, found while
+  rebuilding the stack to verify Sprint 05. `Dockerfile`'s runtime stage never
+  copied `src/` or `tsconfig.json` into the image, but `prisma/seed.ts` runs
+  via `ts-node` **at container startup** (`CMD`, not just at build time) and
+  imports `../src/modules/settings/company.default` — added 2026-07-19
+  (`ce805ea`) without anyone rebuilding the Docker image since, so it went
+  unnoticed until this rebuild. Without `src/` present ts-node failed to
+  resolve the module at all; adding only `src/` (without `tsconfig.json`)
+  produced a *different* failure — ts-node fell back to its own default
+  compiler options instead of the project's (`module: commonjs`), and Node's
+  native ESM resolver rejected the extensionless import. Fixed by copying both
+  `src/` and `tsconfig.json` into the runtime stage. **Does not affect the
+  Render deploy** — `render.yaml` bypasses the Dockerfile entirely (native
+  `runtime: node`, single-stage `npm install`), so `src/` was always present
+  there. Confirmed fixed: `docker compose up -d --build` now reaches a healthy
+  API container and the full Playwright suite passes against it.
 
 ## Sprint 01 follow-ups (deferred by design)
 
@@ -92,12 +110,50 @@ Working list maintained at the end of each sprint. Backlog priorities live in
 - [ ] **AR payment reversal** — AP now has it; AR still tells users to "reverse the payments first" with no endpoint to do so (`invoices.service.cancel`). Port the AP pattern.
 - [ ] Segregation of duties: split `payables.approve` / `payables.pay` before non-owner finance staff are onboarded.
 
+## 🎯 MVP GA reached — 2026-08-02
+
+All 8 P0 items are complete (`PRODUCT_BACKLOG.md`), and every `MVP_SCOPE.md` §4
+exit criterion passes on code — see `SPRINT_06_REPORT.md` §9 for the
+item-by-item checklist.
+
+**The one action left before a real go-live is yours, not development's:**
+the **Cloudflare R2 storage cutover** (`STORAGE.md` §3). Until it is done,
+production documents do not survive a redeploy, so real customer documents
+should not go into production first.
+
+## Newly logged during Sprint 06
+
+- [ ] **Split `bookings.write` if segregation is wanted.** One code covers
+  raise / confirm / cancel. Confirming is the meaningful commitment (it opens
+  the shipment file), so the natural split is `bookings.write` vs a new
+  `bookings.confirm`. Not built: no approved decision covers it, and Sales
+  already had this exact capability before Sprint 06 via the old
+  `quotations.write`-gated convert endpoint — this is that exposure renamed,
+  not widened.
+- [ ] **Decide whether a COMPLETED job may still advance milestones.** Today
+  only CANCELLED is blocked. Permissive on purpose (lets an operator backfill a
+  legacy job's journey; touches only the timeline and the milestone field,
+  never money or status), but it is a Product Owner call — see
+  `SPRINT_06_REPORT.md` §10.6.
+- [ ] **Cut-off alerting.** The bookings screen colours a passed SI/VGM cut-off
+  red, but nothing pushes a notification. Wiring it into the existing
+  `NotificationsService.scan()` is small and follows the pattern Sprint 05 used
+  for overdue invoices.
+
 ## Next sprint candidate (needs Product Owner approval first)
 
-- **Sprint 03 (Accounts Payable) is complete** — see `SPRINT_03_REPORT.md`.
-  **Sprint 04 is not started.** Per process, a `SPRINT_04_PLAN.md` must be
-  produced and explicitly approved before any implementation. Remaining P0
-  candidates by value/dependency order: **P0-7** credit-limit enforcement (S —
-  data already captured, smallest remaining P0), **P0-8** AR overdue automation
-  + Statement of Account (M — pairs naturally with the new AP side),
-  **P0-4** booking + shipment milestones (L — the last MVP-scope blocker).
+- **Sprint 04 (credit-limit enforcement + integration-test layer + R2 cutover)
+  is complete** — see `SPRINT_04_REPORT.md` (2026-07-29). This file's own
+  status table above was stale for a few days after that landed; corrected here.
+- **Sprint 05 (AR overdue automation + Statement of Account, P0-8) is
+  complete** — see `SPRINT_05_REPORT.md` (2026-08-02).
+- **Sprint 06 (Booking object + shipment operational milestones, P0-4) is
+  complete** — see `SPRINT_06_REPORT.md` (2026-08-02). **This was the last P0;
+  MVP GA is reached.**
+- **Next is Phase 3 (fast-follow to R1)** per `IMPLEMENTATION_ROADMAP.md`, in
+  dependency order: **P1-1** accounting integration (Xero/QuickBooks — closes
+  the "no book of accounts" gap without building a GL), **P1-3 + P1-4**
+  shipping-document generation + task engine, **P1-5/6/7** structured parties,
+  containers and rate depth, then **P1-2** the Customer Portal (XL, the
+  competitive-parity item). Per process each needs its own plan approved before
+  implementation.
