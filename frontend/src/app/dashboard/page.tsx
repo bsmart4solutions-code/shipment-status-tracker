@@ -6,9 +6,9 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import { Shell } from '@/components/shell';
-import { Card, StatCard } from '@/components/ui';
-import { api } from '@/lib/api';
-import { fmtMoney, fmtPct } from '@/lib/utils';
+import { Card, StatCard, StatusBadge } from '@/components/ui';
+import { api, hasPermission } from '@/lib/api';
+import { fmtDate, fmtMoney, fmtPct } from '@/lib/utils';
 
 const PALETTE = ['#2563eb', '#0891b2', '#7c3aed', '#059669', '#d97706', '#dc2626', '#4f46e5', '#0d9488'];
 
@@ -22,6 +22,52 @@ interface Summary {
   topVendors: { name: string; spend: number; isPreferred: boolean }[];
   revenueByService: { service: string; revenue: number }[];
   revenueBySalesPerson: { salesPerson: string; revenue: number; grossProfit: number }[];
+}
+
+/** Shipments in transit with the milestone they are waiting on (Sprint 06). */
+interface InTransitRow {
+  id: string; jobNumber: string; customer: string; origin: string | null; destination: string | null;
+  etd: string | null; eta: string | null; milestone: string | null; nextMilestone: string | null;
+}
+
+function InTransitPanel() {
+  const { data } = useQuery({
+    queryKey: ['jobs-in-transit'],
+    queryFn: () => api<InTransitRow[]>('/jobs/in-transit'),
+    refetchInterval: 60_000,
+    enabled: hasPermission('jobs.read'),
+  });
+  if (!data) return null;
+
+  return (
+    <Card>
+      <h3 className="font-semibold mb-3">Shipments In Transit</h3>
+      {data.length === 0 ? (
+        <p className="text-sm text-gray-400">No shipments currently in transit.</p>
+      ) : (
+        <div className="space-y-2">
+          {data.map((s) => (
+            <div key={s.id} className="flex items-center justify-between gap-3 border-b border-gray-100 dark:border-gray-800 pb-2 last:border-0">
+              <div className="min-w-0">
+                <div className="text-sm font-medium truncate">
+                  {s.jobNumber} <span className="text-gray-500 font-normal">· {s.customer}</span>
+                </div>
+                <div className="text-xs text-gray-400">
+                  {s.origin || '?'} → {s.destination || '?'}{s.eta ? ` · ETA ${fmtDate(s.eta)}` : ''}
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                {s.milestone ? <StatusBadge status={s.milestone} /> : <span className="text-xs text-gray-400">Not booked</span>}
+                {s.nextMilestone && (
+                  <div className="text-[11px] text-gray-400 mt-0.5">next: {s.nextMilestone.replace(/_/g, ' ')}</div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
 }
 
 export default function DashboardPage() {
@@ -51,6 +97,8 @@ export default function DashboardPage() {
             <StatCard label="Active Jobs" value={data.counts.activeJobs} accent="text-cyan-600" />
             <StatCard label="Completed Jobs" value={data.counts.completedJobs} accent="text-emerald-600" />
           </div>
+
+          <InTransitPanel />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card>

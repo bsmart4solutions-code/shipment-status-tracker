@@ -31,6 +31,15 @@ const STATUS_COLORS: Record<string, string> = {
   COMPLETED: 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300',
   ACTIVE: 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300',
   INACTIVE: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
+  // Booking lifecycle (Sprint 06)
+  CONFIRMED: 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300',
+  // Shipment milestones — one hue deepening along the journey.
+  BOOKED: 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300',
+  GATED_IN: 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300',
+  LOADED: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300',
+  DEPARTED: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300',
+  ARRIVED: 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300',
+  DELIVERED: 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300',
 };
 
 export function StatusBadge({ status }: { status: string }) {

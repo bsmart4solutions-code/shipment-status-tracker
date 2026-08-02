@@ -71,6 +71,43 @@ const VENDOR_BILL_EDGES: Record<VendorBillStatus, Set<VendorBillStatus>> = {
   VOID: new Set(['VOID']),
 };
 
+// Booking lifecycle (Sprint 06, P0-4). DRAFT is editable; CONFIRMED is the
+// event that creates the shipment Job (and is therefore irreversible — a
+// confirmed booking with a job behind it must be cancelled, never silently
+// reopened for editing); CANCELLED is terminal.
+export type BookingStatus = 'DRAFT' | 'CONFIRMED' | 'CANCELLED';
+
+const BOOKING_EDGES: Record<BookingStatus, Set<BookingStatus>> = {
+  DRAFT: new Set(['DRAFT', 'CONFIRMED', 'CANCELLED']),
+  CONFIRMED: new Set(['CONFIRMED', 'CANCELLED']),
+  CANCELLED: new Set(['CANCELLED']),
+};
+
+/**
+ * Operational milestones of a shipment. Unlike every other machine here these
+ * are **strictly forward-only and single-step**: cargo cannot un-depart, and
+ * skipping ahead would silently invent events that never happened. Correcting
+ * a mistake is a business decision (cancel the file / log a manual tracking
+ * note), not a status edit — the same reasoning that makes PAID terminal for
+ * invoices.
+ *
+ * `null` is the starting point: a job has no milestone until it is booked.
+ */
+export type MilestoneStatus = 'BOOKED' | 'GATED_IN' | 'LOADED' | 'DEPARTED' | 'ARRIVED' | 'DELIVERED';
+
+export const MILESTONE_SEQUENCE: MilestoneStatus[] = [
+  'BOOKED', 'GATED_IN', 'LOADED', 'DEPARTED', 'ARRIVED', 'DELIVERED',
+];
+
+const MILESTONE_EDGES: Record<MilestoneStatus, Set<MilestoneStatus>> = {
+  BOOKED: new Set(['BOOKED', 'GATED_IN']),
+  GATED_IN: new Set(['GATED_IN', 'LOADED']),
+  LOADED: new Set(['LOADED', 'DEPARTED']),
+  DEPARTED: new Set(['DEPARTED', 'ARRIVED']),
+  ARRIVED: new Set(['ARRIVED', 'DELIVERED']),
+  DELIVERED: new Set(['DELIVERED']),
+};
+
 /**
  * Payment reversal is the ONLY operation that moves a bill backwards, so its
  * edges live in a separate set that only `reversePayment()` consults. There is
@@ -124,5 +161,26 @@ export function assertVendorBillReversal(from: VendorBillStatus, to: VendorBillS
   const allowed = VENDOR_BILL_REVERSAL_EDGES[from];
   if (!allowed?.has(to)) {
     throw new BadRequestException(`Payment reversal cannot move a vendor bill from ${from} to ${to}`);
+  }
+}
+
+export function assertBookingStatusTransition(from: BookingStatus, to: BookingStatus): void {
+  const allowed = BOOKING_EDGES[from];
+  if (!allowed?.has(to)) {
+    throw new BadRequestException(`Booking status cannot change from ${from} to ${to}`);
+  }
+}
+
+/**
+ * `from` is null for a shipment that has not reached its first milestone yet,
+ * in which case only BOOKED is reachable.
+ */
+export function assertMilestoneTransition(from: MilestoneStatus | null, to: MilestoneStatus): void {
+  const allowed = from === null ? new Set<MilestoneStatus>(['BOOKED']) : MILESTONE_EDGES[from];
+  if (!allowed?.has(to)) {
+    const current = from ?? 'not yet booked';
+    throw new BadRequestException(
+      `Shipment milestone cannot move from ${current} to ${to} — milestones advance one step at a time and never go backwards`,
+    );
   }
 }

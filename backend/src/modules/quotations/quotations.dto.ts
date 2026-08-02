@@ -3,6 +3,18 @@ import {
   ArrayMinSize, IsArray, IsBoolean, IsDateString, IsEmail, IsIn, IsNumber, IsOptional, IsPositive,
   IsString, IsUUID, Min, ValidateNested,
 } from 'class-validator';
+import { PaginationDto } from '../../common/dto/pagination.dto';
+
+// The global ValidationPipe runs with forbidNonWhitelisted, so list filters must
+// be declared on the DTO — extra @Query() params would be rejected (was the bug
+// tracked in TODO.md).
+export class ListQuotationsDto extends PaginationDto {
+  @IsOptional() @IsIn(['DRAFT', 'SENT', 'WON', 'LOST', 'CANCELLED']) status?: string;
+  @IsOptional() @IsUUID() customerId?: string;
+  @IsOptional() @IsUUID() salesPersonId?: string;
+  @IsOptional() @IsDateString() from?: string;
+  @IsOptional() @IsDateString() to?: string;
+}
 
 export class QuotationItemDto {
   @IsUUID() serviceId: string;

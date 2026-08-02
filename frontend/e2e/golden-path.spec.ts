@@ -23,9 +23,10 @@ test('reaches the dashboard with a restored session', async ({ page }) => {
   await expect(page.getByRole('link', { name: 'Invoices' })).toBeVisible();
 });
 
-test('walks the commercial golden path: quotations → jobs → invoices', async ({ page }) => {
+test('walks the commercial golden path: quotations → bookings → jobs → invoices', async ({ page }) => {
   for (const [link, heading] of [
     ['Quotations', /quotations/i],
+    ['Bookings', /bookings/i],
     ['Jobs / Shipments', /jobs/i],
     ['Invoices', /invoices/i],
   ] as const) {
@@ -54,6 +55,32 @@ test('shows customer credit standing (Sprint 04)', async ({ page }) => {
   await page.getByRole('button', { name: 'Credit' }).first().click();
   await expect(page.getByText(/Outstanding \(exposure\)/i)).toBeVisible();
   await expect(page.getByText(/Effective limit/i)).toBeVisible();
+});
+
+test('opens the milestone stepper on a shipment (Sprint 06)', async ({ page }) => {
+  await page.getByRole('link', { name: 'Jobs / Shipments' }).click();
+  // The table renders before its rows arrive, so wait for a row rather than
+  // counting buttons that do not exist yet.
+  await expect(page.locator('tbody tr').first()).toBeVisible();
+
+  const milestone = page.getByRole('button', { name: 'Milestone' }).first();
+  // Only live, undelivered shipments offer it; skip cleanly rather than
+  // asserting on data this test does not own.
+  test.skip(await milestone.count() === 0, 'no advanceable shipment in this dataset');
+
+  await milestone.click();
+  await expect(page.getByText(/Shipment milestone/i)).toBeVisible();
+  // The fixed sequence is shown so an illegal jump is visibly unavailable.
+  await expect(page.getByText('DELIVERED')).toBeVisible();
+});
+
+test('opens a customer Statement of Account (Sprint 05)', async ({ page }) => {
+  await page.getByRole('link', { name: 'Customers' }).click();
+  await expect(page.getByRole('heading', { name: /customers/i })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Statement' }).first().click();
+  await expect(page.getByText(/Statement of Account/i)).toBeVisible();
+  await expect(page.getByText(/Closing balance/i)).toBeVisible();
 });
 
 test('invoice Issue opens the credit check before committing', async ({ page }) => {

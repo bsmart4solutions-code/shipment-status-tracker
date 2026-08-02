@@ -57,6 +57,7 @@ model User {
   billsUpdated       VendorBill[]      @relation("BillUpdatedBy")
   vendorPaymentsRecorded VendorPayment[] @relation("VendorPaymentRecordedBy")
   vendorPaymentsReversed VendorPayment[] @relation("VendorPaymentReversedBy")
+  bookingsCreated        Booking[]       @relation("BookingCreatedBy")
 
   @@map("users")
 }
@@ -201,6 +202,7 @@ model Customer {
   documents    CustomerDocument[]
   bankAccounts CustomerBankAccount[]
   creditDebitNotes CreditDebitNote[]
+  bookings     Booking[]
 
   @@index([companyName])
   @@index([deletedAt])
@@ -364,6 +366,7 @@ model Vendor {
   documents    VendorDocument[]
   bankAccounts VendorBankAccount[]
   bills        VendorBill[]
+  bookings     Booking[]
 
   @@index([name])
   @@index([deletedAt])
@@ -566,6 +569,7 @@ model Quotation {
 
   items     QuotationItem[]
   jobs      Job[]
+  bookings  Booking[]
   revisions QuotationRevision[]
 
   @@index([customerId])
@@ -631,6 +635,72 @@ model QuotationRevision {
 
 // ─────────────────────────── Jobs / Shipments ───────────────────────────
 
+// ─────────────────────── Booking (Sprint 06, P0-4) ───────────────────────
+// The missing core forwarding step: a won quotation is booked with a carrier
+// before any shipment file exists. Booking is deliberately its own entity, not
+// fields on Quotation or Job — it has its own lifecycle (DRAFT → CONFIRMED →
+// CANCELLED) distinct from both, and carrier/cut-off data belongs to neither
+// the commercial document nor the operational file. Confirming a booking is
+// what creates the Job, exactly as converting a quotation used to.
+
+enum BookingStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
+model Booking {
+  id            String        @id @default(uuid())
+  bookingNumber String        @unique // auto: BKG-2026-0001
+  quotationId   String?
+  quotation     Quotation?    @relation(fields: [quotationId], references: [id])
+  customerId    String
+  customer      Customer      @relation(fields: [customerId], references: [id])
+  // The carrier as a vendor record when one exists; `carrier` is the free-text
+  // fallback for co-loaders and one-off carriers not kept as vendors.
+  vendorId         String?
+  vendor           Vendor?    @relation(fields: [vendorId], references: [id])
+  carrier          String?
+  carrierBookingNo String? // the carrier's own booking reference
+  status        BookingStatus @default(DRAFT)
+  bookingDate   DateTime      @default(now())
+  // Operational deadlines the whole booking exists to track.
+  siCutoff      DateTime? // shipping instructions
+  vgmCutoff     DateTime? // verified gross mass
+  cyCutoff      DateTime? // container yard
+  etd           DateTime?
+  eta           DateTime?
+  origin        String?
+  destination   String?
+  currency      String   @default("MYR")
+  notes         String?
+  createdById   String?
+  createdBy     User?    @relation("BookingCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  jobs Job[]
+
+  // One quotation books at most once, mirroring Job.quotationId. NULLs are
+  // distinct in Postgres, so standalone bookings (no quotation) are unaffected.
+  @@unique([quotationId])
+  @@index([customerId])
+  @@index([status])
+  @@map("bookings")
+}
+
+// Operational milestones of a shipment, distinct from JobStatus (which is the
+// commercial/administrative state). Strictly forward-only — see
+// assertMilestoneTransition in common/state-machine.ts.
+enum MilestoneStatus {
+  BOOKED
+  GATED_IN
+  LOADED
+  DEPARTED
+  ARRIVED
+  DELIVERED
+}
+
 enum JobStatus {
   OPEN
   IN_PROGRESS
@@ -646,6 +716,10 @@ model Job {
   customer       Customer  @relation(fields: [customerId], references: [id])
   quotationId    String?
   quotation      Quotation? @relation(fields: [quotationId], references: [id])
+  // Set when the job was created by confirming a booking. Nullable: jobs
+  // created directly (no booking) remain valid.
+  bookingId      String?
+  booking        Booking?  @relation(fields: [bookingId], references: [id])
   shipmentDate   DateTime?
   etd            DateTime?
   eta            DateTime?
@@ -655,6 +729,9 @@ model Job {
   vendor         Vendor?   @relation(fields: [vendorId], references: [id])
   trackingNumber String?
   status         JobStatus @default(OPEN)
+  // Current operational milestone. NULL until the shipment is booked; the
+  // full history lives in JobTrackingEvent (one SYSTEM row per advance).
+  milestone      MilestoneStatus?
   actualCost     Decimal   @default(0) @db.Decimal(14, 2)
   actualRevenue  Decimal   @default(0) @db.Decimal(14, 2)
   profit         Decimal   @default(0) @db.Decimal(14, 2)
@@ -676,6 +753,9 @@ model Job {
   // One quotation converts to at most one job. NULLs are treated as distinct
   // by Postgres, so manually-created jobs (no quotation) are unaffected.
   @@unique([quotationId])
+  // One booking confirms into at most one job — the race-safe backstop for
+  // two simultaneous confirmations (the service maps P2002 to 409).
+  @@unique([bookingId])
   @@index([customerId])
   @@index([status])
   @@index([vendorId])
@@ -740,6 +820,9 @@ model Invoice {
   status        InvoiceStatus @default(DRAFT)
   issueDate     DateTime      @default(now())
   dueDate       DateTime?
+  // Last time an overdue reminder email went out — the daily scan skips an
+  // invoice reminded within the last 7 days rather than re-sending every run.
+  lastReminderAt DateTime?
   notes         String?
   // Freight header printed on the tax invoice (Solid Xpress format). All
   // optional free text; ports/vessel/BL etc. are copied from the job/quote
@@ -1113,6 +1196,7 @@ enum NotificationType {
   JOB_DELAY
   HIGH_COST
   LOW_MARGIN
+  INVOICE_OVERDUE
   SYSTEM
 }
 

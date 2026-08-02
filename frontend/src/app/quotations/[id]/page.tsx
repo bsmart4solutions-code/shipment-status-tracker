@@ -22,6 +22,7 @@ interface QuoteDetail {
     service: { name: string }; vendor: { name: string } | null;
   }[];
   jobs: { id: string; jobNumber: string; status: string }[];
+  bookings: { id: string; bookingNumber: string; status: string }[];
 }
 
 export default function QuotationDetailPage({ params }: { params: { id: string } }) {
@@ -36,31 +37,40 @@ export default function QuotationDetailPage({ params }: { params: { id: string }
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['quotation', id] }); qc.invalidateQueries({ queryKey: ['quotations'] }); },
   });
 
-  const convert = useMutation({
-    mutationFn: () => api<{ id: string; jobNumber: string }>(`/quotations/${id}/convert`, { method: 'POST' }),
-    onSuccess: (job) => {
+  // Sprint 06: a won quote is booked with a carrier first; confirming that
+  // booking is what opens the shipment file.
+  const book = useMutation({
+    mutationFn: () => api<{ id: string; bookingNumber: string }>(`/bookings/from-quotation/${id}`, { method: 'POST' }),
+    onSuccess: () => {
       qc.invalidateQueries();
-      router.push(`/jobs?highlight=${job.id}`);
+      router.push('/bookings');
     },
   });
 
   const canWrite = hasPermission('quotations.write');
+  const canBook = hasPermission('bookings.write');
   if (!q) return <Shell title="Quotation">Loading…</Shell>;
 
-  // A WON quotation with no job yet can be converted. Once converted (a linked
-  // job exists) the button is replaced by a link to that job. Before WON, the
-  // deal must be marked WON first — the state machine won't convert a lost or
-  // cancelled quote.
+  // A WON quotation with no booking yet can be booked. Once booked, the button
+  // is replaced by a link to that booking (or the job once it is confirmed).
+  // Before WON, the deal must be marked WON first — the state machine won't
+  // book a lost or cancelled quote.
+  const alreadyBooked = q.bookings.length > 0;
   const alreadyConverted = q.jobs.length > 0;
-  const canConvert = canWrite && q.status === 'WON' && !alreadyConverted;
+  const canCreateBooking = canBook && q.status === 'WON' && !alreadyBooked;
 
   return (
     <Shell title={q.quoteNumber} actions={
       <div className="flex gap-2">
         <button className="btn-ghost" onClick={() => router.push(`/quotations/${id}/print`)}><Printer size={15} /> Print / PDF</button>
-        {canConvert && (
-          <button className="btn-primary" onClick={() => convert.mutate()} disabled={convert.isPending}>
-            <ArrowRightLeft size={15} /> {convert.isPending ? 'Converting…' : 'Convert to Job'}
+        {canCreateBooking && (
+          <button className="btn-primary" onClick={() => book.mutate()} disabled={book.isPending}>
+            <ArrowRightLeft size={15} /> {book.isPending ? 'Booking…' : 'Create Booking'}
+          </button>
+        )}
+        {alreadyBooked && !alreadyConverted && (
+          <button className="btn-ghost" onClick={() => router.push('/bookings')}>
+            <ArrowRightLeft size={15} /> View Booking {q.bookings[0].bookingNumber}
           </button>
         )}
         {alreadyConverted && (
@@ -143,19 +153,25 @@ export default function QuotationDetailPage({ params }: { params: { id: string }
                   onClick={() => setStatus.mutate(s)} disabled={setStatus.isPending || s === q.status}>{s}</button>
               ))}
             </div>
-            {/* Guide the WON → convert flow right where the status is set. */}
-            {canConvert && (
+            {/* Guide the WON → book flow right where the status is set. */}
+            {canCreateBooking && (
               <div className="mt-3 flex items-center gap-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 px-3 py-2">
-                <span className="text-sm text-emerald-800 dark:text-emerald-300">This quotation is <b>WON</b> — turn it into a job to start operations.</span>
-                <button className="btn-primary ml-auto" onClick={() => convert.mutate()} disabled={convert.isPending}>
-                  <ArrowRightLeft size={15} /> {convert.isPending ? 'Converting…' : 'Convert to Job'}
+                <span className="text-sm text-emerald-800 dark:text-emerald-300">This quotation is <b>WON</b> — raise a carrier booking to start operations.</span>
+                <button className="btn-primary ml-auto" onClick={() => book.mutate()} disabled={book.isPending}>
+                  <ArrowRightLeft size={15} /> {book.isPending ? 'Booking…' : 'Create Booking'}
                 </button>
               </div>
             )}
-            {alreadyConverted && (
-              <p className="mt-3 text-sm text-gray-500">Converted to job <button className="text-primary hover:underline font-medium" onClick={() => router.push(`/jobs?highlight=${q.jobs[0].id}`)}>{q.jobs[0].jobNumber}</button>.</p>
+            {alreadyBooked && !alreadyConverted && (
+              <p className="mt-3 text-sm text-gray-500">
+                Booked as <button className="text-primary hover:underline font-medium" onClick={() => router.push('/bookings')}>{q.bookings[0].bookingNumber}</button>
+                {' '}— confirm the booking to open the shipment file.
+              </p>
             )}
-            <ErrorText error={setStatus.error || convert.error} />
+            {alreadyConverted && (
+              <p className="mt-3 text-sm text-gray-500">Shipment file <button className="text-primary hover:underline font-medium" onClick={() => router.push(`/jobs?highlight=${q.jobs[0].id}`)}>{q.jobs[0].jobNumber}</button> is open.</p>
+            )}
+            <ErrorText error={setStatus.error || book.error} />
           </Card>
         )}
       </div>

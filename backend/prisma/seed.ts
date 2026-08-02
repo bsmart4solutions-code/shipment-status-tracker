@@ -10,7 +10,7 @@ import { DEFAULT_COMPANY_PROFILE } from '../src/modules/settings/company.default
 const prisma = new PrismaClient();
 
 const PERMISSION_GROUPS = [
-  'customers', 'vendors', 'services', 'rates', 'quotations', 'jobs',
+  'customers', 'vendors', 'services', 'rates', 'quotations', 'bookings', 'jobs',
   'ratings', 'reports', 'dashboard', 'settings', 'users', 'notifications',
   // 'payables' is deliberately separate from 'invoices': a user who can bill
   // customers does not thereby gain the right to create or pay vendor bills.
@@ -30,7 +30,8 @@ const ROLE_MATRIX: Record<string, string[]> = {
   Manager: [
     'customers.read', 'customers.write', 'vendors.read', 'vendors.write',
     'services.read', 'services.write', 'rates.read', 'rates.write',
-    'quotations.read', 'quotations.write', 'jobs.read', 'jobs.write',
+    'quotations.read', 'quotations.write', 'bookings.read', 'bookings.write',
+    'jobs.read', 'jobs.write',
     'ratings.read', 'ratings.write', 'reports.read', 'dashboard.read',
     'notifications.read', 'invoices.read', 'invoices.write',
     'payables.read', 'payables.write',
@@ -38,25 +39,31 @@ const ROLE_MATRIX: Record<string, string[]> = {
     'credit.override',
     'recycle.read', 'recycle.write', 'approvals.read', 'approvals.write',
   ],
+  // Sales raises the booking off a won quotation — the same action they used to
+  // perform through `quotations.write` when converting created a job directly,
+  // so this is the existing exposure renamed, not a new one.
   Sales: [
     'customers.read', 'customers.write', 'vendors.read', 'services.read',
-    'rates.read', 'quotations.read', 'quotations.write', 'jobs.read',
+    'rates.read', 'quotations.read', 'quotations.write',
+    'bookings.read', 'bookings.write', 'jobs.read',
     'ratings.read', 'dashboard.read', 'notifications.read', 'invoices.read',
   ],
+  // Operations confirms the booking with the carrier and drives the milestones.
   Operation: [
     'customers.read', 'vendors.read', 'services.read', 'rates.read',
-    'quotations.read', 'jobs.read', 'jobs.write', 'ratings.read',
+    'quotations.read', 'bookings.read', 'bookings.write',
+    'jobs.read', 'jobs.write', 'ratings.read',
     'ratings.write', 'dashboard.read', 'notifications.read',
   ],
   Finance: [
     'customers.read', 'vendors.read', 'services.read', 'rates.read',
-    'quotations.read', 'jobs.read', 'reports.read', 'dashboard.read',
+    'quotations.read', 'bookings.read', 'jobs.read', 'reports.read', 'dashboard.read',
     'notifications.read', 'invoices.read', 'invoices.write',
     'payables.read', 'payables.write',
   ],
   Viewer: [
     'customers.read', 'vendors.read', 'services.read', 'rates.read',
-    'quotations.read', 'jobs.read', 'dashboard.read', 'notifications.read',
+    'quotations.read', 'bookings.read', 'jobs.read', 'dashboard.read', 'notifications.read',
     'invoices.read',
   ],
 };
@@ -127,6 +134,7 @@ async function main() {
     { key: 'vendor', prefix: 'VEN', padding: 4, includeYear: false },
     { key: 'service', prefix: 'SVC', padding: 4, includeYear: false },
     { key: 'quotation', prefix: 'QT', padding: 4, includeYear: true },
+    { key: 'booking', prefix: 'BKG', padding: 4, includeYear: true },
     { key: 'job', prefix: 'JOB', padding: 4, includeYear: true },
     { key: 'invoice', prefix: 'INV', padding: 4, includeYear: true },
     { key: 'creditNote', prefix: 'CN', padding: 4, includeYear: true },

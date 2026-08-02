@@ -1,10 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
 import { SequenceService } from '../../common/sequence.service';
 import { PaginationDto, paged } from '../../common/dto/pagination.dto';
-import { assertJobStatusTransition } from '../../common/state-machine';
-import { AddTrackingEventDto, CreateJobDto, UpdateJobDto } from './jobs.dto';
+import { assertJobStatusTransition, assertMilestoneTransition, MILESTONE_SEQUENCE, MilestoneStatus } from '../../common/state-machine';
+import { AddTrackingEventDto, AdvanceMilestoneDto, CreateJobDto, UpdateJobDto } from './jobs.dto';
 
 @Injectable()
 export class JobsService {
@@ -120,6 +120,81 @@ export class JobsService {
         createdById: userId,
       },
     });
+  }
+
+  /**
+   * Advance the shipment's operational milestone (Sprint 06, P0-4).
+   *
+   * Distinct from `addTrackingEvent`: milestones are a fixed forward-only
+   * sequence validated by the state machine, and the current position is
+   * persisted on the job so list/dashboard queries never have to replay the
+   * event history. Each advance still writes a SYSTEM tracking row, so the
+   * timeline remains the full record of how the shipment got here.
+   */
+  async advanceMilestone(jobId: string, dto: AdvanceMilestoneDto, userId?: string) {
+    const job = await this.prisma.job.findFirst({
+      where: { id: jobId, deletedAt: null },
+      select: { id: true, status: true, milestone: true },
+    });
+    if (!job) throw new NotFoundException('Job not found');
+    if (job.status === 'CANCELLED') {
+      throw new BadRequestException('Cannot advance milestones on a cancelled job');
+    }
+    assertMilestoneTransition(job.milestone, dto.milestone);
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.job.update({ where: { id: jobId }, data: { milestone: dto.milestone } });
+      await tx.jobTrackingEvent.create({
+        data: {
+          jobId,
+          status: dto.milestone,
+          location: dto.location,
+          description: dto.description ?? `Milestone: ${dto.milestone.replace(/_/g, ' ')}`,
+          occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : new Date(),
+          source: 'SYSTEM',
+          createdById: userId,
+        },
+      });
+      return updated;
+    });
+  }
+
+  /** The milestone that may legally be reached next, or null at the end. */
+  static nextMilestone(current: MilestoneStatus | null): MilestoneStatus | null {
+    if (current === null) return 'BOOKED';
+    const i = MILESTONE_SEQUENCE.indexOf(current);
+    return i >= 0 && i < MILESTONE_SEQUENCE.length - 1 ? MILESTONE_SEQUENCE[i + 1] : null;
+  }
+
+  /**
+   * Shipments currently in transit, with the milestone they are waiting on.
+   * Powers the dashboard operations panel.
+   */
+  async inTransit(limit = 10) {
+    const jobs = await this.prisma.job.findMany({
+      where: {
+        deletedAt: null,
+        status: { in: ['OPEN', 'IN_PROGRESS'] },
+        // `not: 'DELIVERED'` alone would silently drop rows where milestone is
+        // NULL (SQL: NULL != 'DELIVERED' is NULL, not TRUE) — i.e. every job
+        // not yet booked, which is exactly what operations most needs to see.
+        OR: [{ milestone: null }, { milestone: { not: 'DELIVERED' } }],
+      },
+      include: { customer: { select: { companyName: true } } },
+      orderBy: [{ eta: 'asc' }, { createdAt: 'desc' }],
+      take: limit,
+    });
+    return jobs.map((j) => ({
+      id: j.id,
+      jobNumber: j.jobNumber,
+      customer: j.customer.companyName,
+      origin: j.origin,
+      destination: j.destination,
+      etd: j.etd,
+      eta: j.eta,
+      milestone: j.milestone,
+      nextMilestone: JobsService.nextMilestone(j.milestone as MilestoneStatus | null),
+    }));
   }
 
   private mapDates(dto: CreateJobDto | UpdateJobDto): Record<string, unknown> {

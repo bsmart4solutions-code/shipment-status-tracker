@@ -147,6 +147,9 @@ export class QuotationsService {
         salesPerson: { select: { id: true, fullName: true, email: true, phone: true } },
         items: { orderBy: { sortOrder: 'asc' }, include: { service: { select: { name: true } }, vendor: { select: { name: true } } } },
         jobs: { select: { id: true, jobNumber: true, status: true } },
+        // Sprint 06: the quote is booked before a job exists, so the detail
+        // page needs the booking to know whether the deal has moved on.
+        bookings: { select: { id: true, bookingNumber: true, status: true } },
       },
     });
     if (!quote) throw new NotFoundException('Quotation not found');
@@ -403,66 +406,11 @@ export class QuotationsService {
     return quote;
   }
 
-  /** Quotation → Job conversion (automation). Marks the quote WON and copies commercials. */
-  async convertToJob(id: string, userId?: string) {
-    const quote = await this.get(id);
-    // Conversion implies a WON transition; the state machine is the single
-    // source of truth for which statuses may reach WON (blocks CANCELLED/LOST).
-    assertQuotationStatusTransition(quote.status, 'WON');
-    assertApprovalAllows('WON', quote.approvalStatus);
-    // One quotation converts to at most one job. Fail fast with a friendly
-    // message; the DB unique constraint below is the race-safe backstop.
-    const existingJob = await this.prisma.job.findUnique({
-      where: { quotationId: id },
-      select: { jobNumber: true },
-    });
-    if (existingJob) {
-      throw new ConflictException(`Quotation already converted to job ${existingJob.jobNumber}`);
-    }
-    const jobNumber = await this.seq.next('job');
-    // Primary vendor: the one carrying the largest cost share
-    const vendorTotals = new Map<string, number>();
-    for (const item of quote.items) {
-      if (item.vendorId) vendorTotals.set(item.vendorId, (vendorTotals.get(item.vendorId) ?? 0) + Number(item.totalCost));
-    }
-    const primaryVendorId = [...vendorTotals.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-
-    try {
-      return await this.prisma.$transaction(async (tx) => {
-        const j = await tx.job.create({
-          data: {
-            jobNumber,
-            customerId: quote.customerId,
-            quotationId: quote.id,
-            vendorId: primaryVendorId,
-            currency: quote.currency,
-            actualCost: quote.totalCost,
-            // Net of SST: sellingPrice is the tax-inclusive grand total, but
-            // collected tax is not revenue. Keeps actualRevenue − actualCost
-            // equal to profit, and the job-based P&L consistent with the
-            // quotation-based P&L (which already reports net of tax).
-            actualRevenue: Number(quote.sellingPrice) - Number(quote.taxAmt),
-            profit: quote.grossProfit,
-            // Carry the freight lane onto the job so ops sees it without
-            // opening the source quotation.
-            origin: quote.pol,
-            destination: quote.pod,
-            status: 'OPEN',
-          },
-        });
-        if (quote.status !== 'WON') await tx.quotation.update({ where: { id }, data: { status: 'WON' } });
-        const ctx = requestContext.getStore();
-        await tx.auditLog.create({ data: { userId, action: 'CONVERT', entityType: 'quotation', entityId: id, detail: { jobNumber }, ip: ctx?.ip, userAgent: ctx?.userAgent } });
-        return j;
-      });
-    } catch (e) {
-      // Concurrent double-submit: the unique constraint on quotationId fired.
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException('Quotation was already converted to a job');
-      }
-      throw e;
-    }
-  }
+  // Quotation → Job conversion lived here until Sprint 06. A won quotation is
+  // now booked with a carrier first (`BookingsService.createFromQuotation`),
+  // and confirming that booking is what opens the shipment file
+  // (`BookingsService.confirm`) — the commercial copy, the WON transition and
+  // the P2002 race guard all moved there intact.
 
   /** Soft delete — moves the quotation to the recycle bin, restorable. */
   async remove(id: string, userId?: string) {

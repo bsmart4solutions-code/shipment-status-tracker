@@ -1,11 +1,10 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/permissions.decorator';
-import { PaginationDto } from '../../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { PayablesService } from '../payables/payables.service';
-import { AddTrackingEventDto, CreateJobDto, UpdateJobDto } from './jobs.dto';
+import { AddTrackingEventDto, AdvanceMilestoneDto, CreateJobDto, ListJobsDto, UpdateJobDto } from './jobs.dto';
 import { JobsService } from './jobs.service';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -23,16 +22,13 @@ export class JobsController {
   }
 
   @Get() @RequirePermission('jobs.read')
-  list(
-    @Query() dto: PaginationDto,
-    @Query('status') status?: string,
-    @Query('customerId') customerId?: string,
-    @Query('vendorId') vendorId?: string,
-    @Query('origin') origin?: string,
-    @Query('destination') destination?: string,
-  ) {
-    return this.jobs.list({ ...dto, status, customerId, vendorId, origin, destination });
+  list(@Query() dto: ListJobsDto) {
+    return this.jobs.list(dto);
   }
+
+  /** Shipments in transit with their next milestone (dashboard ops panel). */
+  @Get('in-transit') @RequirePermission('jobs.read')
+  inTransit() { return this.jobs.inTransit(); }
 
   @Get(':id') @RequirePermission('jobs.read')
   get(@Param('id') id: string) { return this.jobs.get(id); }
@@ -55,5 +51,14 @@ export class JobsController {
   @Post(':id/tracking') @RequirePermission('jobs.write')
   addTrackingEvent(@Param('id') id: string, @Body() dto: AddTrackingEventDto, @CurrentUser() user: { id: string }) {
     return this.jobs.addTrackingEvent(id, dto, user.id);
+  }
+
+  /**
+   * Advance the operational milestone (Sprint 06). Separate from the free-text
+   * tracking endpoint above: this one is validated against the fixed sequence.
+   */
+  @Post(':id/milestone') @RequirePermission('jobs.write')
+  advanceMilestone(@Param('id') id: string, @Body() dto: AdvanceMilestoneDto, @CurrentUser() user: { id: string }) {
+    return this.jobs.advanceMilestone(id, dto, user.id);
   }
 }

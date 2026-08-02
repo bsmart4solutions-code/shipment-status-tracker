@@ -12,13 +12,18 @@ import { fmtDate, fmtMoney } from '@/lib/utils';
 import { exportToXlsx } from '@/lib/xlsx-export';
 
 const JOB_STATUSES = ['OPEN', 'IN_PROGRESS', 'ON_HOLD', 'COMPLETED', 'CANCELLED'];
-const JOB_COLS = ['Job #', 'Customer', 'Quote', 'Route', 'Vendor', 'ETD / ETA', 'Tracking', 'Revenue', 'Cost', 'Profit', 'Status'];
+const JOB_COLS = ['Job #', 'Customer', 'Quote', 'Route', 'Vendor', 'ETD / ETA', 'Tracking', 'Revenue', 'Cost', 'Profit', 'Milestone', 'Status'];
+
+/** Fixed operational sequence — must mirror MILESTONE_SEQUENCE on the server. */
+const MILESTONES = ['BOOKED', 'GATED_IN', 'LOADED', 'DEPARTED', 'ARRIVED', 'DELIVERED'] as const;
+type Milestone = (typeof MILESTONES)[number];
 
 interface JobRow {
   id: string; jobNumber: string; status: string; origin: string | null; destination: string | null;
   etd: string | null; eta: string | null; trackingNumber: string | null; currency: string;
   actualCost: string; actualRevenue: string; profit: string;
   shipmentDate: string | null; notes: string | null; customerId: string; vendorId: string | null;
+  milestone: Milestone | null;
   customer: { companyName: string }; vendor: { name: string } | null;
   quotation: { quoteNumber: string } | null;
 }
@@ -29,6 +34,7 @@ export default function JobsPage() {
   const [status, setStatus] = useState('');
   const [editing, setEditing] = useState<JobRow | 'new' | null>(null);
   const [tracking, setTracking] = useState<JobRow | null>(null);
+  const [milestoneFor, setMilestoneFor] = useState<JobRow | null>(null);
   const [costFor, setCostFor] = useState<JobRow | null>(null);
   const [docsFor, setDocsFor] = useState<JobRow | null>(null);
 
@@ -48,7 +54,7 @@ export default function JobsPage() {
     Origin: j.origin ?? '', Destination: j.destination ?? '', Vendor: j.vendor?.name ?? '',
     ETD: fmtDate(j.etd), ETA: fmtDate(j.eta), Tracking: j.trackingNumber ?? '',
     Currency: j.currency, Revenue: Number(j.actualRevenue), Cost: Number(j.actualCost),
-    Profit: Number(j.profit), Status: j.status,
+    Profit: Number(j.profit), Milestone: j.milestone ?? '', Status: j.status,
   })));
 
   const genInvoice = useMutation({
@@ -90,9 +96,17 @@ export default function JobsPage() {
             {cols.show('Revenue') && <td className="td">{fmtMoney(j.actualRevenue, j.currency)}</td>}
             {cols.show('Cost') && <td className="td">{fmtMoney(j.actualCost, j.currency)}</td>}
             {cols.show('Profit') && <td className={`td font-medium ${Number(j.profit) >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmtMoney(j.profit, j.currency)}</td>}
+            {cols.show('Milestone') && (
+              <td className="td">
+                {j.milestone ? <StatusBadge status={j.milestone} /> : <span className="text-gray-400 text-sm">Not booked</span>}
+              </td>
+            )}
             {cols.show('Status') && <td className="td"><StatusBadge status={j.status} /></td>}
             <td className="td">
               <div className="flex gap-2">
+                {canWrite && j.status !== 'CANCELLED' && j.milestone !== 'DELIVERED' && (
+                  <button className="text-primary hover:underline text-sm" onClick={() => setMilestoneFor(j)}>Milestone</button>
+                )}
                 <button className="text-primary hover:underline text-sm" onClick={() => setTracking(j)}>Track</button>
                 <button className="text-primary hover:underline text-sm" onClick={() => setDocsFor(j)}>Docs</button>
                 <button className="text-primary hover:underline text-sm" onClick={() => setCostFor(j)}>Cost</button>
@@ -112,10 +126,82 @@ export default function JobsPage() {
       <div className="mt-3"><Pagination page={page} pageCount={data?.pageCount ?? 1} onChange={setPage} /></div>
 
       {editing && <JobModal job={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {milestoneFor && <MilestoneModal job={milestoneFor} onClose={() => setMilestoneFor(null)} />}
       {tracking && <TrackingModal job={tracking} onClose={() => setTracking(null)} />}
       {docsFor && <DocumentsModal job={docsFor} onClose={() => setDocsFor(null)} />}
       {costFor && <JobCostPanel jobId={costFor.id} jobNumber={costFor.jobNumber} onClose={() => setCostFor(null)} />}
     </Shell>
+  );
+}
+
+/**
+ * Milestone stepper (Sprint 06). Only the single next step is offered — the
+ * server enforces the same rule, but showing the sequence makes *why* obvious
+ * rather than surfacing a rejection after the fact.
+ */
+function MilestoneModal({ job, onClose }: { job: JobRow; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [location, setLocation] = useState('');
+  const [description, setDescription] = useState('');
+
+  const currentIndex = job.milestone ? MILESTONES.indexOf(job.milestone) : -1;
+  const next = currentIndex < MILESTONES.length - 1 ? MILESTONES[currentIndex + 1] : null;
+
+  const advance = useMutation({
+    mutationFn: () => api(`/jobs/${job.id}/milestone`, {
+      method: 'POST',
+      body: JSON.stringify({ milestone: next, location: location || undefined, description: description || undefined }),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['jobs'] });
+      qc.invalidateQueries({ queryKey: ['job-tracking', job.id] });
+      onClose();
+    },
+  });
+
+  return (
+    <Modal title={`Shipment milestone — ${job.jobNumber}`} onClose={onClose}>
+      <div className="space-y-4">
+        <div className="text-sm text-gray-500">{job.origin || '?'} → {job.destination || '?'}</div>
+
+        <ol className="space-y-1">
+          {MILESTONES.map((m, i) => {
+            const done = i <= currentIndex;
+            const isNext = i === currentIndex + 1;
+            return (
+              <li key={m} className="flex items-center gap-3">
+                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${done ? 'bg-primary' : isNext ? 'bg-amber-400' : 'bg-gray-300 dark:bg-gray-700'}`} />
+                <span className={done ? 'font-medium' : isNext ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400'}>
+                  {m.replace(/_/g, ' ')}
+                </span>
+                {isNext && <span className="text-xs text-gray-400">next</span>}
+              </li>
+            );
+          })}
+        </ol>
+
+        {next ? (
+          <form onSubmit={(e) => { e.preventDefault(); advance.mutate(); }}
+            className="border-t border-gray-200 dark:border-gray-800 pt-3 space-y-2">
+            <div className="text-xs text-gray-500 uppercase font-semibold">Advance to {next.replace(/_/g, ' ')}</div>
+            <input className="input" placeholder="Location (optional)" value={location} onChange={(e) => setLocation(e.target.value)} />
+            <textarea className="input" rows={2} placeholder="Remarks (optional)" value={description} onChange={(e) => setDescription(e.target.value)} />
+            <ErrorText error={advance.error} />
+            <button className="btn-primary w-full justify-center" disabled={advance.isPending}>
+              {advance.isPending ? 'Saving…' : `Mark ${next.replace(/_/g, ' ')}`}
+            </button>
+            <p className="text-[11px] text-gray-400">
+              Milestones advance one step at a time and never go backwards — correcting a mistake is a manual
+              tracking note, not a status edit.
+            </p>
+          </form>
+        ) : (
+          <p className="text-sm text-emerald-600 border-t border-gray-200 dark:border-gray-800 pt-3">
+            Delivered — this shipment has completed every milestone.
+          </p>
+        )}
+      </div>
+    </Modal>
   );
 }
 

@@ -16,6 +16,8 @@ export const PERM = {
   RATES_WRITE: 'rates.write',
   QUOTATIONS_READ: 'quotations.read',
   QUOTATIONS_WRITE: 'quotations.write',
+  BOOKINGS_READ: 'bookings.read',
+  BOOKINGS_WRITE: 'bookings.write',
   JOBS_READ: 'jobs.read',
   JOBS_WRITE: 'jobs.write',
   INVOICES_READ: 'invoices.read',

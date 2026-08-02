@@ -12,6 +12,7 @@ import { VendorsModule } from './modules/vendors/vendors.module';
 import { ServicesCatalogModule } from './modules/services-catalog/services.module';
 import { RatesModule } from './modules/rates/rates.module';
 import { QuotationsModule } from './modules/quotations/quotations.module';
+import { BookingsModule } from './modules/bookings/bookings.module';
 import { JobsModule } from './modules/jobs/jobs.module';
 import { RatingsModule } from './modules/ratings/ratings.module';
 import { FxModule } from './modules/fx/fx.module';
@@ -49,6 +50,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
     ServicesCatalogModule,
     RatesModule,
     QuotationsModule,
+    BookingsModule,
     JobsModule,
     RatingsModule,
     FxModule,

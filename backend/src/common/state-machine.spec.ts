@@ -1,9 +1,13 @@
 import {
+  assertBookingStatusTransition,
   assertInvoiceStatusTransition,
   assertJobStatusTransition,
+  assertMilestoneTransition,
   assertQuotationStatusTransition,
   assertVendorBillReversal,
   assertVendorBillStatusTransition,
+  MILESTONE_SEQUENCE,
+  MilestoneStatus,
 } from './state-machine';
 
 describe('State machine — quotation transitions', () => {
@@ -152,5 +156,70 @@ describe('State machine — vendor bill payment reversal', () => {
     expect(() => assertVendorBillReversal('PAID', 'DRAFT')).toThrow();
     expect(() => assertVendorBillReversal('PAID', 'VOID')).toThrow();
     expect(() => assertVendorBillReversal('APPROVED', 'DRAFT')).toThrow();
+  });
+});
+
+describe('State machine — booking transitions (Sprint 06)', () => {
+  it('allows the normal DRAFT → CONFIRMED path', () => {
+    expect(() => assertBookingStatusTransition('DRAFT', 'CONFIRMED')).not.toThrow();
+  });
+
+  it('allows same-status no-ops', () => {
+    for (const s of ['DRAFT', 'CONFIRMED', 'CANCELLED'] as const) {
+      expect(() => assertBookingStatusTransition(s, s)).not.toThrow();
+    }
+  });
+
+  it('never reopens a CONFIRMED booking for editing — a job exists behind it', () => {
+    expect(() => assertBookingStatusTransition('CONFIRMED', 'DRAFT')).toThrow(/cannot change from CONFIRMED to DRAFT/);
+  });
+
+  it('can still cancel a confirmed booking', () => {
+    expect(() => assertBookingStatusTransition('CONFIRMED', 'CANCELLED')).not.toThrow();
+  });
+
+  it('treats CANCELLED as terminal', () => {
+    for (const to of ['DRAFT', 'CONFIRMED'] as const) {
+      expect(() => assertBookingStatusTransition('CANCELLED', to)).toThrow();
+    }
+  });
+});
+
+describe('State machine — shipment milestones (Sprint 06)', () => {
+  it('walks the full sequence one step at a time', () => {
+    expect(() => assertMilestoneTransition(null, 'BOOKED')).not.toThrow();
+    for (let i = 0; i < MILESTONE_SEQUENCE.length - 1; i++) {
+      expect(() => assertMilestoneTransition(MILESTONE_SEQUENCE[i], MILESTONE_SEQUENCE[i + 1])).not.toThrow();
+    }
+  });
+
+  it('allows same-milestone no-ops', () => {
+    for (const m of MILESTONE_SEQUENCE) {
+      expect(() => assertMilestoneTransition(m, m)).not.toThrow();
+    }
+  });
+
+  it('starts only at BOOKED — a shipment cannot begin mid-journey', () => {
+    for (const to of ['GATED_IN', 'LOADED', 'DEPARTED', 'ARRIVED', 'DELIVERED'] as const) {
+      expect(() => assertMilestoneTransition(null, to)).toThrow(/not yet booked/);
+    }
+  });
+
+  it('never skips a step forward', () => {
+    expect(() => assertMilestoneTransition('BOOKED', 'LOADED')).toThrow(/one step at a time/);
+    expect(() => assertMilestoneTransition('BOOKED', 'DELIVERED')).toThrow();
+    expect(() => assertMilestoneTransition('LOADED', 'ARRIVED')).toThrow();
+  });
+
+  it('never goes backwards — cargo cannot un-depart', () => {
+    expect(() => assertMilestoneTransition('DEPARTED', 'LOADED')).toThrow(/never go backwards/);
+    expect(() => assertMilestoneTransition('ARRIVED', 'BOOKED')).toThrow();
+    expect(() => assertMilestoneTransition('DELIVERED', 'ARRIVED')).toThrow();
+  });
+
+  it('treats DELIVERED as terminal', () => {
+    for (const to of MILESTONE_SEQUENCE.filter((m) => m !== 'DELIVERED') as MilestoneStatus[]) {
+      expect(() => assertMilestoneTransition('DELIVERED', to)).toThrow();
+    }
   });
 });
