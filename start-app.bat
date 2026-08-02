@@ -25,15 +25,22 @@ if errorlevel 1 (
     exit /b 1
 )
 
-sc query postgresql-17 | find "RUNNING" >nul
+REM Full path on purpose: with Git for Windows on PATH, a bare `find` or
+REM `findstr` can resolve to the Unix tool instead of the Windows one, which
+REM fails and makes this look like the service is down when it is running.
+sc query postgresql-17 | "%SystemRoot%\System32\findstr.exe" /C:"RUNNING" >nul
 if errorlevel 1 (
     echo Database service is stopped. Starting it...
     net start postgresql-17 >nul 2>&1
+    sc query postgresql-17 | "%SystemRoot%\System32\findstr.exe" /C:"RUNNING" >nul
     if errorlevel 1 (
         echo.
-        echo   Could not start the service automatically - it may need
-        echo   Administrator rights. Open an admin terminal and run:
+        echo   Could not start the database service - this needs Administrator
+        echo   rights. Right-click Start, choose "Terminal ^(Administrator^)",
+        echo   and run:
         echo       net start postgresql-17
+        echo.
+        echo   Then run this script again.
         echo.
         pause
         exit /b 1
@@ -54,7 +61,7 @@ start "Backend - Shipment Tracker" cmd /k "cd /d "%ROOT%backend" && npm run star
 
 echo Waiting for backend to respond...
 :waitbackend
-timeout /t 2 >nul
+ping -n 3 127.0.0.1 >nul
 curl -s -o nul http://localhost:4000/api/health/live
 if errorlevel 1 goto waitbackend
 :backenddone
@@ -73,7 +80,7 @@ start "Frontend - Shipment Tracker" cmd /k "cd /d "%ROOT%frontend" && npm run de
 
 echo Waiting for frontend to respond...
 :waitfrontend
-timeout /t 2 >nul
+ping -n 3 127.0.0.1 >nul
 curl -s -o nul http://localhost:3000/login
 if errorlevel 1 goto waitfrontend
 :frontenddone

@@ -17,4 +17,4 @@ for %%P in (4000 3000) do (
 )
 
 echo Done. The database service is still running (that is intentional).
-timeout /t 3 >nul
+ping -n 4 127.0.0.1 >nul

@@ -55,12 +55,20 @@ Local development runs **without Docker**. Three parts, all on this machine:
 > held by a Postgres running inside WSL (a Supabase local stack). The two are
 > completely independent; this project uses 5433 so neither disturbs the other.
 
+> **Running the business on this?** See **[LOCAL_OPERATIONS.md](LOCAL_OPERATIONS.md)**
+> for the day-to-day guide: backups (already automated), enabling real email,
+> where uploaded files live, clearing the demo data, and troubleshooting.
+
 ### Everyday use
 
 Double-click **`start-app.bat`** in the project root. It checks the database
 service, starts backend and frontend in their own windows, and opens the
-browser. **`stop-app.bat`** stops the two dev servers (it leaves the database
-service running on purpose — it is idle-cheap and starts with Windows).
+browser — about 18 seconds from cold. **`stop-app.bat`** stops the two dev
+servers (it leaves the database service running on purpose — it is idle-cheap
+and starts with Windows).
+
+**`backup-db.bat`** takes a database backup on demand; a scheduled task also
+runs one daily and keeps the last 30.
 
 Log in with `admin@erp.local` / `Admin@123`.
 
