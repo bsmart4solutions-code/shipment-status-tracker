@@ -55,7 +55,14 @@ async function bootstrap() {
   });
 
   const port = Number(process.env.PORT || 4000);
-  const server = await app.listen(port);
+  // Bind address. Express defaults to every interface, which on a laptop means
+  // the API — login endpoint included — is reachable by anything on the same
+  // WiFi. Containers and PaaS need the wide bind to route traffic in, so the
+  // default is unchanged; a single-machine install sets HOST=127.0.0.1 to keep
+  // the API on loopback. CORS does not help here: it is a browser convention,
+  // not a network control, and any non-browser client ignores it entirely.
+  const host = process.env.HOST || '0.0.0.0';
+  const server = await app.listen(port, host);
 
   // Request timeout
   server.requestTimeout = 30000;
