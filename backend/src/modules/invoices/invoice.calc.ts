@@ -94,3 +94,42 @@ export function applyPayment(totalAmount: number, amountPaid: number, paymentAmo
   const newStatus = newAmountPaid >= collectible ? 'PAID' : 'PARTIALLY_PAID';
   return { newAmountPaid, newStatus };
 }
+
+export class AlreadyReversedError extends Error {
+  constructor() {
+    super('This payment has already been reversed');
+    this.name = 'AlreadyReversedError';
+  }
+}
+
+export interface ReversalOutcome {
+  newAmountPaid: number;
+  newStatus: 'ISSUED' | 'PARTIALLY_PAID' | 'PAID';
+}
+
+/**
+ * Recompute an invoice after one of its payments is reversed.
+ *
+ * `remainingPaid` is the sum of the invoice's NON-reversed payments *after*
+ * the reversal, so the total is rebuilt from the surviving rows rather than
+ * subtracted from the stored figure — a subtraction would carry forward any
+ * drift already present in `amountPaid`.
+ *
+ * Status is re-derived, never supplied by a caller, against the same
+ * `collectible` basis `applyPayment` uses (face value net of issued credit and
+ * debit notes). Reversing every payment returns the invoice to ISSUED, not to
+ * DRAFT: the invoice was issued and stays issued — only the cash is undone.
+ */
+export function recomputeInvoiceAfterReversal(
+  totalAmount: number,
+  remainingPaid: number,
+  noteNet = 0,
+): ReversalOutcome {
+  const collectible = round2(totalAmount + noteNet);
+  const newAmountPaid = round2(remainingPaid);
+  if (newAmountPaid <= 0) return { newAmountPaid: 0, newStatus: 'ISSUED' };
+  // `>=` not `===`: a credit note issued after payment can push the collectible
+  // below what was already received, and that invoice is still settled.
+  if (newAmountPaid >= collectible) return { newAmountPaid, newStatus: 'PAID' };
+  return { newAmountPaid, newStatus: 'PARTIALLY_PAID' };
+}

@@ -44,6 +44,20 @@ const INVOICE_EDGES: Record<InvoiceStatus, Set<InvoiceStatus>> = {
   CANCELLED: new Set(['CANCELLED']),
 };
 
+/**
+ * Reversing a receipt is the one legitimate way an invoice moves BACKWARDS, so
+ * it gets its own edge set rather than loosening INVOICE_EDGES. Keeping them
+ * separate means the forward rule "PAID is terminal" still holds for every
+ * ordinary transition — only an explicit, audited reversal may reopen a
+ * settled invoice, and even then only into a state its remaining payments
+ * justify. Mirrors VENDOR_BILL_REVERSAL_EDGES on the AP side.
+ */
+const INVOICE_PAYMENT_REVERSAL_EDGES: Record<string, Set<InvoiceStatus>> = {
+  PAID: new Set(['PAID', 'PARTIALLY_PAID', 'ISSUED']),
+  PARTIALLY_PAID: new Set(['PARTIALLY_PAID', 'ISSUED']),
+  ISSUED: new Set(['ISSUED']),
+};
+
 // Credit/Debit note lifecycle: DRAFT is editable; ISSUED is locked and has
 // applied to AR; CANCELLED voids a draft/issued note (issued-with-effect
 // reversal is handled in the service before allowing the cancel).
@@ -157,6 +171,13 @@ export function assertVendorBillStatusTransition(from: VendorBillStatus, to: Ven
 }
 
 /** Backward transition, reachable only through payment reversal. */
+export function assertInvoicePaymentReversal(from: InvoiceStatus, to: InvoiceStatus): void {
+  const allowed = INVOICE_PAYMENT_REVERSAL_EDGES[from];
+  if (!allowed?.has(to)) {
+    throw new BadRequestException(`Payment reversal cannot move an invoice from ${from} to ${to}`);
+  }
+}
+
 export function assertVendorBillReversal(from: VendorBillStatus, to: VendorBillStatus): void {
   const allowed = VENDOR_BILL_REVERSAL_EDGES[from];
   if (!allowed?.has(to)) {

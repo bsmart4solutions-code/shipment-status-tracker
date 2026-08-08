@@ -140,7 +140,22 @@ _(none open — both items below were fixed 2026-08-02)_
 - [ ] **Vendor bill attachments** — deferred by PO Decision 5, so an approved payable has no scanned vendor invoice in the system. Interim: job-linked bills can use the existing Job Documents feature; standalone bills have no home. Design settled in `AP_ARCHITECTURE_DECISION.md` §7 (polymorphic `attachments`). **Depends on the R2 cutover above.**
 - [ ] **Vendor credit/debit notes** — design settled (ADR §6, separate `vendor_credit_debit_notes` model reusing the calc engine + state machine). The `noteNet` parameter is already wired through `applyVendorPayment`, so netting arrives without a signature change.
 - [ ] **Job cost detail lines** (ADR §5.6) — the structural fix for `Job.actualCost` being seeded with the quotation estimate. Until then the cost panel labels the recorded cost as unconfirmed.
-- [ ] **AR payment reversal** — AP now has it; AR still tells users to "reverse the payments first" with no endpoint to do so (`invoices.service.cancel`). Port the AP pattern.
+- [x] **AR payment reversal — done 2026-08-08.** `POST /invoices/payments/:paymentId/reverse`,
+  ported from AP including the lock ordering Sprint 04 had to learn the hard way
+  (locate invoice → lock → re-read the payment inside the lock). Soft reversal:
+  the row is kept and flagged with who/when/why. Reversed receipts are excluded
+  from `amountPaid` and from the customer statement, but stay visible on the
+  invoice detail — the customer should not see cash that was backed out, while
+  the cash trail must still show it arrived. New `INVOICE_PAYMENT_REVERSAL_EDGES`
+  rather than loosening `INVOICE_EDGES`, so "PAID is terminal" still holds for
+  every ordinary transition.
+
+- [x] **AR recordPayment had no row lock — fixed in the same change.** Found while
+  porting the reversal: AP locks the bill inside the transaction, AR read
+  `amountPaid` *outside* it, so two concurrent receipts both saw the old figure
+  and the second overwrote the first. A payment row would exist with its money
+  missing from the invoice — the invoice could sit unpaid while the cash was in
+  the bank. Proven by an integration test that fails when the lock is removed.
 - [ ] Segregation of duties: split `payables.approve` / `payables.pay` before non-owner finance staff are onboarded.
 
 ## 🎯 MVP GA reached — 2026-08-02

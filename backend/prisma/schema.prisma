@@ -22,42 +22,43 @@ datasource db {
 // ─────────────────────────── Auth & RBAC ───────────────────────────
 
 model User {
-  id           String     @id @default(uuid())
-  email        String     @unique
-  passwordHash String
-  fullName     String
-  phone        String? // shown as the salesperson contact on printed quotations
-  roleId       String
-  role         Role       @relation(fields: [roleId], references: [id])
-  isActive     Boolean    @default(true)
+  id                  String    @id @default(uuid())
+  email               String    @unique
+  passwordHash        String
+  fullName            String
+  phone               String? // shown as the salesperson contact on printed quotations
+  roleId              String
+  role                Role      @relation(fields: [roleId], references: [id])
+  isActive            Boolean   @default(true)
   // Account-level brute-force lockout (IP throttling alone is bypassable
   // by rotating IPs): N failures lock the account until lockedUntil.
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  quotations        Quotation[]        @relation("SalesPerson")
-  vendorRatings     VendorRating[]
-  customerRatings   CustomerRating[]
-  notifications     Notification[]
-  jobTrackingEvents JobTrackingEvent[]
-  invoicePayments   InvoicePayment[]
-  quotationRevisions QuotationRevision[]
-  quotationApprovals Quotation[]       @relation("QuotationApprover")
-  customersAssigned  Customer[]        @relation("CustomerSalesperson")
-  customersCreated   Customer[]        @relation("CustomerCreatedBy")
-  customersUpdated   Customer[]        @relation("CustomerUpdatedBy")
-  vendorsAssigned    Vendor[]          @relation("VendorBuyer")
-  vendorsCreated     Vendor[]          @relation("VendorCreatedBy")
-  vendorsUpdated     Vendor[]          @relation("VendorUpdatedBy")
-  notesCreated       CreditDebitNote[] @relation("NoteCreatedBy")
-  notesUpdated       CreditDebitNote[] @relation("NoteUpdatedBy")
-  billsCreated       VendorBill[]      @relation("BillCreatedBy")
-  billsUpdated       VendorBill[]      @relation("BillUpdatedBy")
-  vendorPaymentsRecorded VendorPayment[] @relation("VendorPaymentRecordedBy")
-  vendorPaymentsReversed VendorPayment[] @relation("VendorPaymentReversedBy")
-  bookingsCreated        Booking[]       @relation("BookingCreatedBy")
+  quotations              Quotation[]         @relation("SalesPerson")
+  vendorRatings           VendorRating[]
+  customerRatings         CustomerRating[]
+  notifications           Notification[]
+  jobTrackingEvents       JobTrackingEvent[]
+  invoicePayments         InvoicePayment[]    @relation("InvoicePaymentRecordedBy")
+  invoicePaymentsReversed InvoicePayment[]    @relation("InvoicePaymentReversedBy")
+  quotationRevisions      QuotationRevision[]
+  quotationApprovals      Quotation[]         @relation("QuotationApprover")
+  customersAssigned       Customer[]          @relation("CustomerSalesperson")
+  customersCreated        Customer[]          @relation("CustomerCreatedBy")
+  customersUpdated        Customer[]          @relation("CustomerUpdatedBy")
+  vendorsAssigned         Vendor[]            @relation("VendorBuyer")
+  vendorsCreated          Vendor[]            @relation("VendorCreatedBy")
+  vendorsUpdated          Vendor[]            @relation("VendorUpdatedBy")
+  notesCreated            CreditDebitNote[]   @relation("NoteCreatedBy")
+  notesUpdated            CreditDebitNote[]   @relation("NoteUpdatedBy")
+  billsCreated            VendorBill[]        @relation("BillCreatedBy")
+  billsUpdated            VendorBill[]        @relation("BillUpdatedBy")
+  vendorPaymentsRecorded  VendorPayment[]     @relation("VendorPaymentRecordedBy")
+  vendorPaymentsReversed  VendorPayment[]     @relation("VendorPaymentReversedBy")
+  bookingsCreated         Booking[]           @relation("BookingCreatedBy")
 
   @@map("users")
 }
@@ -105,104 +106,104 @@ enum CustomerType {
 }
 
 model Customer {
-  id           String       @id @default(uuid())
-  code         String       @unique // auto: CUST-0001
-  companyName  String
+  id                       String       @id @default(uuid())
+  code                     String       @unique // auto: CUST-0001
+  companyName              String
   // ── Primary contact (denormalized quick-reference; full list in contacts[]) ──
-  pic          String? // person in charge / primary contact name
-  phone        String? // primary office phone
-  email        String?
-  mobile       String?
-  officePhone  String?
-  extension    String?
-  whatsapp     String?
-  contactTitle String? // primary contact job title
-  preferredComm String? // EMAIL / PHONE / WHATSAPP / SMS
+  pic                      String? // person in charge / primary contact name
+  phone                    String? // primary office phone
+  email                    String?
+  mobile                   String?
+  officePhone              String?
+  extension                String?
+  whatsapp                 String?
+  contactTitle             String? // primary contact job title
+  preferredComm            String? // EMAIL / PHONE / WHATSAPP / SMS
   // ── Company information ──
-  address       String? // legacy single-line address (kept; full list in addresses[])
-  industry      String?
-  customerType  CustomerType @default(COMPANY)
-  registrationNo String? // business registration / SSM number
-  taxId         String? // GST / VAT / SST number
-  website       String?
-  customerCategory String? // e.g. Wholesale / Retail / Government
-  salesTerritory   String?
-  leadSource       String? // Referral / Website / Cold Call / Exhibition...
+  address                  String? // legacy single-line address (kept; full list in addresses[])
+  industry                 String?
+  customerType             CustomerType @default(COMPANY)
+  registrationNo           String? // business registration / SSM number
+  taxId                    String? // GST / VAT / SST number
+  website                  String?
+  customerCategory         String? // e.g. Wholesale / Retail / Government
+  salesTerritory           String?
+  leadSource               String? // Referral / Website / Cold Call / Exhibition...
   // ── Financial ──
-  paymentTerm     String? // e.g. "NET 30"
-  creditLimit     Decimal?     @db.Decimal(14, 2)
-  outstandingLimit Decimal?    @db.Decimal(14, 2)
-  currency        String?      @default("MYR")
-  priceLevel      String?
-  taxType         String? // SST / GST / EXEMPT / ZERO-RATED
-  taxExempt       Boolean      @default(false)
-  creditHold      Boolean      @default(false) // block new orders when true
-  openingBalance  Decimal?     @db.Decimal(14, 2)
-  openingBalanceDate DateTime?
+  paymentTerm              String? // e.g. "NET 30"
+  creditLimit              Decimal?     @db.Decimal(14, 2)
+  outstandingLimit         Decimal?     @db.Decimal(14, 2)
+  currency                 String?      @default("MYR")
+  priceLevel               String?
+  taxType                  String? // SST / GST / EXEMPT / ZERO-RATED
+  taxExempt                Boolean      @default(false)
+  creditHold               Boolean      @default(false) // block new orders when true
+  openingBalance           Decimal?     @db.Decimal(14, 2)
+  openingBalanceDate       DateTime?
   // ── Sales & operations ──
-  assignedSalespersonId String?
-  assignedSalesperson   User?  @relation("CustomerSalesperson", fields: [assignedSalespersonId], references: [id], onDelete: SetNull)
-  salesTeam        String?
-  discountGroup    String?
-  defaultDiscountPct Decimal?   @db.Decimal(7, 4)
-  commissionGroup  String?
-  defaultWarehouse String?
-  preferredDeliveryMethod String?
+  assignedSalespersonId    String?
+  assignedSalesperson      User?        @relation("CustomerSalesperson", fields: [assignedSalespersonId], references: [id], onDelete: SetNull)
+  salesTeam                String?
+  discountGroup            String?
+  defaultDiscountPct       Decimal?     @db.Decimal(7, 4)
+  commissionGroup          String?
+  defaultWarehouse         String?
+  preferredDeliveryMethod  String?
   preferredShippingCompany String?
   // ── Accounting ──
-  arAccount           String?
-  customerAccountCode String?
-  taxCategory         String?
-  financeRemarks      String?
+  arAccount                String?
+  customerAccountCode      String?
+  taxCategory              String?
+  financeRemarks           String?
   // ── Shipping ──
-  deliveryInstructions String?
-  receivingHours       String?
-  loadingBayNotes      String?
-  preferredCourier     String?
-  shippingNotes        String?
+  deliveryInstructions     String?
+  receivingHours           String?
+  loadingBayNotes          String?
+  preferredCourier         String?
+  shippingNotes            String?
   // ── CRM ──
-  status       EntityStatus @default(ACTIVE) // account status (kept)
-  priority     Int          @default(3) // 1 highest .. 5 lowest (kept)
-  leadStatus       String? // NEW / QUALIFIED / PROPOSAL / WON / LOST
-  firstContactDate DateTime?
-  customerSince    DateTime?
-  lastContactDate  DateTime?
-  lastSalesDate    DateTime?
-  nextFollowUp     DateTime?
-  birthday         DateTime? // for individuals
-  companyAnniversary DateTime?
+  status                   EntityStatus @default(ACTIVE) // account status (kept)
+  priority                 Int          @default(3) // 1 highest .. 5 lowest (kept)
+  leadStatus               String? // NEW / QUALIFIED / PROPOSAL / WON / LOST
+  firstContactDate         DateTime?
+  customerSince            DateTime?
+  lastContactDate          DateTime?
+  lastSalesDate            DateTime?
+  nextFollowUp             DateTime?
+  birthday                 DateTime? // for individuals
+  companyAnniversary       DateTime?
   // ── Preferences ──
-  preferredLanguage String?
-  timeZone          String?
-  receivePromotions      Boolean @default(true)
-  receiveStatementsByEmail Boolean @default(true)
-  receiveInvoiceByEmail    Boolean @default(true)
+  preferredLanguage        String?
+  timeZone                 String?
+  receivePromotions        Boolean      @default(true)
+  receiveStatementsByEmail Boolean      @default(true)
+  receiveInvoiceByEmail    Boolean      @default(true)
   // ── Internal ──
-  notes            String? // general internal notes (kept)
-  creditNotesInternal String? // financial/credit remarks (distinct from AR credit notes)
-  collectionNotes  String?
-  customerWarnings String?
-  blacklist        Boolean @default(false)
-  vip              Boolean @default(false)
+  notes                    String? // general internal notes (kept)
+  creditNotesInternal      String? // financial/credit remarks (distinct from AR credit notes)
+  collectionNotes          String?
+  customerWarnings         String?
+  blacklist                Boolean      @default(false)
+  vip                      Boolean      @default(false)
   // ── System ──
-  createdById   String?
-  createdBy     User?     @relation("CustomerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  updatedById   String?
-  updatedBy     User?     @relation("CustomerUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  deletedAt    DateTime? // soft delete — non-null means in the recycle bin
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  createdById              String?
+  createdBy                User?        @relation("CustomerCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById              String?
+  updatedBy                User?        @relation("CustomerUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  deletedAt                DateTime? // soft delete — non-null means in the recycle bin
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
 
-  quotations Quotation[]
-  jobs       Job[]
-  ratings    CustomerRating[]
-  invoices   Invoice[]
-  contacts     CustomerContact[]
-  addresses    CustomerAddress[]
-  documents    CustomerDocument[]
-  bankAccounts CustomerBankAccount[]
+  quotations       Quotation[]
+  jobs             Job[]
+  ratings          CustomerRating[]
+  invoices         Invoice[]
+  contacts         CustomerContact[]
+  addresses        CustomerAddress[]
+  documents        CustomerDocument[]
+  bankAccounts     CustomerBankAccount[]
   creditDebitNotes CreditDebitNote[]
-  bookings     Booking[]
+  bookings         Booking[]
 
   @@index([companyName])
   @@index([deletedAt])
@@ -267,15 +268,15 @@ model CustomerDocument {
 }
 
 model CustomerBankAccount {
-  id          String   @id @default(uuid())
-  customerId  String
-  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  bankName    String?
-  accountName String?
+  id            String   @id @default(uuid())
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  bankName      String?
+  accountName   String?
   accountNumber String?
-  swift       String?
-  bankAddress String?
-  sortOrder   Int      @default(0)
+  swift         String?
+  bankAddress   String?
+  sortOrder     Int      @default(0)
 
   @@index([customerId])
   @@map("customer_bank_accounts")
@@ -294,79 +295,79 @@ enum VendorType {
 }
 
 model Vendor {
-  id            String       @id @default(uuid())
-  code          String       @unique // auto: VEN-0001
-  name          String
+  id                 String       @id @default(uuid())
+  code               String       @unique // auto: VEN-0001
+  name               String
   // ── Primary contact (denormalized; full list in contacts[]) ──
-  contactPerson String?
-  contactTitle  String?
-  phone         String?
-  email         String?
-  mobile        String?
-  officePhone   String?
-  extension     String?
-  whatsapp      String?
-  preferredComm String? // EMAIL / PHONE / WHATSAPP / SMS
+  contactPerson      String?
+  contactTitle       String?
+  phone              String?
+  email              String?
+  mobile             String?
+  officePhone        String?
+  extension          String?
+  whatsapp           String?
+  preferredComm      String? // EMAIL / PHONE / WHATSAPP / SMS
   // ── Company information ──
-  address       String? // legacy single-line address (kept; full list in addresses[])
-  vendorType    VendorType   @default(SUPPLIER)
-  registrationNo String?
-  taxId         String? // GST / VAT / SST number
-  website       String?
-  category      String? // free-text grouping
-  servicesProvided String? // e.g. "Sea freight, haulage, customs"
+  address            String? // legacy single-line address (kept; full list in addresses[])
+  vendorType         VendorType   @default(SUPPLIER)
+  registrationNo     String?
+  taxId              String? // GST / VAT / SST number
+  website            String?
+  category           String? // free-text grouping
+  servicesProvided   String? // e.g. "Sea freight, haulage, customs"
   // ── Financial ──
-  paymentTerm   String? // our payment terms with this vendor
-  currency      String?      @default("MYR")
-  creditLimit   Decimal?     @db.Decimal(14, 2) // credit they extend to us
-  taxType       String?
-  taxExempt     Boolean      @default(false)
-  openingBalance Decimal?    @db.Decimal(14, 2)
+  paymentTerm        String? // our payment terms with this vendor
+  currency           String?      @default("MYR")
+  creditLimit        Decimal?     @db.Decimal(14, 2) // credit they extend to us
+  taxType            String?
+  taxExempt          Boolean      @default(false)
+  openingBalance     Decimal?     @db.Decimal(14, 2)
   openingBalanceDate DateTime?
   // ── Procurement & operations ──
-  assignedBuyerId String?
-  assignedBuyer   User?      @relation("VendorBuyer", fields: [assignedBuyerId], references: [id], onDelete: SetNull)
-  preferredMode   String? // Sea / Air / Land / Courier
-  leadTimeDays    Int?
-  deliveryTerms   String? // Incoterm or SLA
-  minOrderValue   Decimal?   @db.Decimal(14, 2)
+  assignedBuyerId    String?
+  assignedBuyer      User?        @relation("VendorBuyer", fields: [assignedBuyerId], references: [id], onDelete: SetNull)
+  preferredMode      String? // Sea / Air / Land / Courier
+  leadTimeDays       Int?
+  deliveryTerms      String? // Incoterm or SLA
+  minOrderValue      Decimal?     @db.Decimal(14, 2)
   // ── Accounting ──
-  apAccount         String? // accounts-payable control account
-  vendorAccountCode String?
-  taxCategory       String?
-  financeRemarks    String?
+  apAccount          String? // accounts-payable control account
+  vendorAccountCode  String?
+  taxCategory        String?
+  financeRemarks     String?
   // ── Compliance & lifecycle ──
-  status        EntityStatus @default(ACTIVE)
-  isPreferred   Boolean      @default(false)
-  onboardedDate  DateTime?
-  contractStart  DateTime?
-  contractEnd    DateTime?
-  insuranceExpiry DateTime?
-  licenseNo      String?
-  nextReviewDate DateTime?
+  status             EntityStatus @default(ACTIVE)
+  isPreferred        Boolean      @default(false)
+  onboardedDate      DateTime?
+  contractStart      DateTime?
+  contractEnd        DateTime?
+  insuranceExpiry    DateTime?
+  licenseNo          String?
+  nextReviewDate     DateTime?
   // ── Internal ──
-  notes         String?
-  warnings      String?
-  blacklist     Boolean      @default(false)
+  notes              String?
+  warnings           String?
+  blacklist          Boolean      @default(false)
   // ── System ──
-  createdById   String?
-  createdBy     User?     @relation("VendorCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  updatedById   String?
-  updatedBy     User?     @relation("VendorUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  deletedAt     DateTime? // soft delete — non-null means in the recycle bin
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  createdById        String?
+  createdBy          User?        @relation("VendorCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById        String?
+  updatedBy          User?        @relation("VendorUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  deletedAt          DateTime? // soft delete — non-null means in the recycle bin
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
   rates          VendorServiceRate[]
   ratings        VendorRating[]
   quotationItems QuotationItem[]
   jobs           Job[]
-  contacts     VendorContact[]
-  addresses    VendorAddress[]
-  documents    VendorDocument[]
-  bankAccounts VendorBankAccount[]
-  bills        VendorBill[]
-  bookings     Booking[]
+  contacts       VendorContact[]
+  addresses      VendorAddress[]
+  documents      VendorDocument[]
+  bankAccounts   VendorBankAccount[]
+  bills          VendorBill[]
+  bookings       Booking[]
 
   @@index([name])
   @@index([deletedAt])
@@ -375,17 +376,17 @@ model Vendor {
 }
 
 model VendorContact {
-  id        String  @id @default(uuid())
-  vendorId  String
-  vendor    Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  name      String
-  position  String?
+  id         String  @id @default(uuid())
+  vendorId   String
+  vendor     Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  name       String
+  position   String?
   department String?
-  mobile    String?
-  phone     String?
-  email     String?
-  remarks   String?
-  sortOrder Int     @default(0)
+  mobile     String?
+  phone      String?
+  email      String?
+  remarks    String?
+  sortOrder  Int     @default(0)
 
   @@index([vendorId])
   @@map("vendor_contacts")
@@ -424,15 +425,15 @@ model VendorDocument {
 }
 
 model VendorBankAccount {
-  id          String  @id @default(uuid())
-  vendorId    String
-  vendor      Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  bankName    String?
-  accountName String?
+  id            String  @id @default(uuid())
+  vendorId      String
+  vendor        Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  bankName      String?
+  accountName   String?
   accountNumber String?
-  swift       String?
-  bankAddress String?
-  sortOrder   Int     @default(0)
+  swift         String?
+  bankAddress   String?
+  sortOrder     Int     @default(0)
 
   @@index([vendorId])
   @@map("vendor_bank_accounts")
@@ -514,58 +515,58 @@ enum ApprovalStatus {
 }
 
 model Quotation {
-  id            String          @id @default(uuid())
-  quoteNumber   String          @unique // auto: QT-2026-0001
-  customerId    String
-  customer      Customer        @relation(fields: [customerId], references: [id])
-  quoteDate     DateTime        @default(now())
-  validityDate  DateTime?
-  salesPersonId String?
-  salesPerson   User?           @relation("SalesPerson", fields: [salesPersonId], references: [id])
-  currency      String          @default("MYR")
-  status        QuotationStatus @default(DRAFT)
+  id               String          @id @default(uuid())
+  quoteNumber      String          @unique // auto: QT-2026-0001
+  customerId       String
+  customer         Customer        @relation(fields: [customerId], references: [id])
+  quoteDate        DateTime        @default(now())
+  validityDate     DateTime?
+  salesPersonId    String?
+  salesPerson      User?           @relation("SalesPerson", fields: [salesPersonId], references: [id])
+  currency         String          @default("MYR")
+  status           QuotationStatus @default(DRAFT)
   // Freight header shown on the printed quotation (Solid Xpress format):
   // RE line, ports, shipment/shipping terms. All optional free text.
-  subject       String? // RE : QUOTATION FOR SEA EXPORT FROM PKG TO KUCHING DOOR
-  yourRef       String? // customer's reference number
-  attn          String? // attention person on the customer side
-  pol           String? // Port of Loading, e.g. "PORT KLANG, MALAYSIA"
-  pod           String? // Port of Discharge, e.g. "KUCHING, MALAYSIA"
+  subject          String? // RE : QUOTATION FOR SEA EXPORT FROM PKG TO KUCHING DOOR
+  yourRef          String? // customer's reference number
+  attn             String? // attention person on the customer side
+  pol              String? // Port of Loading, e.g. "PORT KLANG, MALAYSIA"
+  pod              String? // Port of Discharge, e.g. "KUCHING, MALAYSIA"
   finalDestination String? // door/inland destination if beyond POD
-  modeOfTransport String? // "Sea Freight" / "Air Freight" / "Rail" / "Truck"
-  shipmentType  String? // FCL / LCL / Air / Truck (service type)
-  carrier       String? // shipping line / airline (leave blank/TBA if unknown)
-  transitTime   String? // e.g. "7-9 days" or "TBA"
-  freeTime      String? // demurrage/detention free days, e.g. "14 days"
-  goods         String? // cargo description / commodity, e.g. "GEARBOX"
-  cargoWeight   String? // e.g. "20,000 KG"
-  cargoVolume   String? // e.g. "58 CBM"
-  shippingTerm  String? // Incoterm, e.g. "FOB" / "CIF"
-  paymentTerm   String? // "CASH" / "NET 30"...
-  exclusions    String? // what the quote excludes (insurance, duties, etc.)
+  modeOfTransport  String? // "Sea Freight" / "Air Freight" / "Rail" / "Truck"
+  shipmentType     String? // FCL / LCL / Air / Truck (service type)
+  carrier          String? // shipping line / airline (leave blank/TBA if unknown)
+  transitTime      String? // e.g. "7-9 days" or "TBA"
+  freeTime         String? // demurrage/detention free days, e.g. "14 days"
+  goods            String? // cargo description / commodity, e.g. "GEARBOX"
+  cargoWeight      String? // e.g. "20,000 KG"
+  cargoVolume      String? // e.g. "58 CBM"
+  shippingTerm     String? // Incoterm, e.g. "FOB" / "CIF"
+  paymentTerm      String? // "CASH" / "NET 30"...
+  exclusions       String? // what the quote excludes (insurance, duties, etc.)
   // Costing engine outputs (denormalized totals for fast listing; recomputed on every item change)
-  totalCost     Decimal         @default(0) @db.Decimal(14, 2)
-  subtotalSell  Decimal         @default(0) @db.Decimal(14, 2)
-  discountPct   Decimal         @default(0) @db.Decimal(7, 4)
-  discountAmt   Decimal         @default(0) @db.Decimal(14, 2)
-  serviceChargePct Decimal      @default(0) @db.Decimal(7, 4)
-  miscCharge    Decimal         @default(0) @db.Decimal(14, 2)
-  taxPct        Decimal         @default(0) @db.Decimal(7, 4)
-  taxAmt        Decimal         @default(0) @db.Decimal(14, 2)
-  sellingPrice  Decimal         @default(0) @db.Decimal(14, 2) // grand total
-  grossProfit   Decimal         @default(0) @db.Decimal(14, 2)
-  gpPercent     Decimal         @default(0) @db.Decimal(7, 4)
-  remark        String?
+  totalCost        Decimal         @default(0) @db.Decimal(14, 2)
+  subtotalSell     Decimal         @default(0) @db.Decimal(14, 2)
+  discountPct      Decimal         @default(0) @db.Decimal(7, 4)
+  discountAmt      Decimal         @default(0) @db.Decimal(14, 2)
+  serviceChargePct Decimal         @default(0) @db.Decimal(7, 4)
+  miscCharge       Decimal         @default(0) @db.Decimal(14, 2)
+  taxPct           Decimal         @default(0) @db.Decimal(7, 4)
+  taxAmt           Decimal         @default(0) @db.Decimal(14, 2)
+  sellingPrice     Decimal         @default(0) @db.Decimal(14, 2) // grand total
+  grossProfit      Decimal         @default(0) @db.Decimal(14, 2)
+  gpPercent        Decimal         @default(0) @db.Decimal(7, 4)
+  remark           String?
   // Approval workflow: quotes at/above the configured base-currency threshold
   // need approval before SENT/WON (see approval.logic.ts). Edits re-trigger it.
-  approvalStatus ApprovalStatus @default(NOT_REQUIRED)
-  approvedById   String?
-  approvedBy     User?          @relation("QuotationApprover", fields: [approvedById], references: [id], onDelete: Restrict)
-  approvedAt     DateTime?
-  approvalNote   String?
-  deletedAt     DateTime? // soft delete — non-null means in the recycle bin
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  approvalStatus   ApprovalStatus  @default(NOT_REQUIRED)
+  approvedById     String?
+  approvedBy       User?           @relation("QuotationApprover", fields: [approvedById], references: [id], onDelete: Restrict)
+  approvedAt       DateTime?
+  approvalNote     String?
+  deletedAt        DateTime? // soft delete — non-null means in the recycle bin
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
   items     QuotationItem[]
   jobs      Job[]
@@ -580,31 +581,31 @@ model Quotation {
 }
 
 model QuotationItem {
-  id           String    @id @default(uuid())
-  quotationId  String
-  quotation    Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
-  serviceId    String
-  service      Service   @relation(fields: [serviceId], references: [id])
-  vendorId     String?
-  vendor       Vendor?   @relation(fields: [vendorId], references: [id])
-  rateId       String? // source VendorServiceRate snapshot reference
-  description  String?
-  quantity     Decimal   @default(1) @db.Decimal(14, 4)
-  unit         String? // KG / CBM / TRIP / CONTAINER...
-  costCurrency String    @default("MYR")
-  fxRate       Decimal   @default(1) @db.Decimal(14, 6) // costCurrency -> quotation currency
-  unitCost     Decimal   @default(0) @db.Decimal(14, 4)
-  minimumCharge Decimal? @db.Decimal(14, 2)
-  markupPct    Decimal   @default(0) @db.Decimal(7, 4)
-  unitSell     Decimal   @default(0) @db.Decimal(14, 4) // in quotation currency
-  totalCost    Decimal   @default(0) @db.Decimal(14, 2) // in quotation currency
-  totalSell    Decimal   @default(0) @db.Decimal(14, 2)
-  grossProfit  Decimal   @default(0) @db.Decimal(14, 2)
-  gpPercent    Decimal   @default(0) @db.Decimal(7, 4)
+  id            String    @id @default(uuid())
+  quotationId   String
+  quotation     Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  serviceId     String
+  service       Service   @relation(fields: [serviceId], references: [id])
+  vendorId      String?
+  vendor        Vendor?   @relation(fields: [vendorId], references: [id])
+  rateId        String? // source VendorServiceRate snapshot reference
+  description   String?
+  quantity      Decimal   @default(1) @db.Decimal(14, 4)
+  unit          String? // KG / CBM / TRIP / CONTAINER...
+  costCurrency  String    @default("MYR")
+  fxRate        Decimal   @default(1) @db.Decimal(14, 6) // costCurrency -> quotation currency
+  unitCost      Decimal   @default(0) @db.Decimal(14, 4)
+  minimumCharge Decimal?  @db.Decimal(14, 2)
+  markupPct     Decimal   @default(0) @db.Decimal(7, 4)
+  unitSell      Decimal   @default(0) @db.Decimal(14, 4) // in quotation currency
+  totalCost     Decimal   @default(0) @db.Decimal(14, 2) // in quotation currency
+  totalSell     Decimal   @default(0) @db.Decimal(14, 2)
+  grossProfit   Decimal   @default(0) @db.Decimal(14, 2)
+  gpPercent     Decimal   @default(0) @db.Decimal(7, 4)
   // SST-exempt line (printed as tax code SVE 0%) — Malaysian service tax
   // does not apply to ocean freight, per the standard quotation T&C.
-  taxExempt    Boolean   @default(false)
-  sortOrder    Int       @default(0)
+  taxExempt     Boolean   @default(false)
+  sortOrder     Int       @default(0)
 
   @@index([quotationId])
   @@index([serviceId])
@@ -650,34 +651,34 @@ enum BookingStatus {
 }
 
 model Booking {
-  id            String        @id @default(uuid())
-  bookingNumber String        @unique // auto: BKG-2026-0001
-  quotationId   String?
-  quotation     Quotation?    @relation(fields: [quotationId], references: [id])
-  customerId    String
-  customer      Customer      @relation(fields: [customerId], references: [id])
+  id               String        @id @default(uuid())
+  bookingNumber    String        @unique // auto: BKG-2026-0001
+  quotationId      String?
+  quotation        Quotation?    @relation(fields: [quotationId], references: [id])
+  customerId       String
+  customer         Customer      @relation(fields: [customerId], references: [id])
   // The carrier as a vendor record when one exists; `carrier` is the free-text
   // fallback for co-loaders and one-off carriers not kept as vendors.
   vendorId         String?
-  vendor           Vendor?    @relation(fields: [vendorId], references: [id])
+  vendor           Vendor?       @relation(fields: [vendorId], references: [id])
   carrier          String?
   carrierBookingNo String? // the carrier's own booking reference
-  status        BookingStatus @default(DRAFT)
-  bookingDate   DateTime      @default(now())
+  status           BookingStatus @default(DRAFT)
+  bookingDate      DateTime      @default(now())
   // Operational deadlines the whole booking exists to track.
-  siCutoff      DateTime? // shipping instructions
-  vgmCutoff     DateTime? // verified gross mass
-  cyCutoff      DateTime? // container yard
-  etd           DateTime?
-  eta           DateTime?
-  origin        String?
-  destination   String?
-  currency      String   @default("MYR")
-  notes         String?
-  createdById   String?
-  createdBy     User?    @relation("BookingCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  siCutoff         DateTime? // shipping instructions
+  vgmCutoff        DateTime? // verified gross mass
+  cyCutoff         DateTime? // container yard
+  etd              DateTime?
+  eta              DateTime?
+  origin           String?
+  destination      String?
+  currency         String        @default("MYR")
+  notes            String?
+  createdById      String?
+  createdBy        User?         @relation("BookingCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
   jobs Job[]
 
@@ -710,40 +711,40 @@ enum JobStatus {
 }
 
 model Job {
-  id             String    @id @default(uuid())
-  jobNumber      String    @unique // auto: JOB-2026-0001
+  id             String           @id @default(uuid())
+  jobNumber      String           @unique // auto: JOB-2026-0001
   customerId     String
-  customer       Customer  @relation(fields: [customerId], references: [id])
+  customer       Customer         @relation(fields: [customerId], references: [id])
   quotationId    String?
-  quotation      Quotation? @relation(fields: [quotationId], references: [id])
+  quotation      Quotation?       @relation(fields: [quotationId], references: [id])
   // Set when the job was created by confirming a booking. Nullable: jobs
   // created directly (no booking) remain valid.
   bookingId      String?
-  booking        Booking?  @relation(fields: [bookingId], references: [id])
+  booking        Booking?         @relation(fields: [bookingId], references: [id])
   shipmentDate   DateTime?
   etd            DateTime?
   eta            DateTime?
   origin         String?
   destination    String?
   vendorId       String? // primary assigned vendor
-  vendor         Vendor?   @relation(fields: [vendorId], references: [id])
+  vendor         Vendor?          @relation(fields: [vendorId], references: [id])
   trackingNumber String?
-  status         JobStatus @default(OPEN)
+  status         JobStatus        @default(OPEN)
   // Current operational milestone. NULL until the shipment is booked; the
   // full history lives in JobTrackingEvent (one SYSTEM row per advance).
   milestone      MilestoneStatus?
-  actualCost     Decimal   @default(0) @db.Decimal(14, 2)
-  actualRevenue  Decimal   @default(0) @db.Decimal(14, 2)
-  profit         Decimal   @default(0) @db.Decimal(14, 2)
-  currency       String    @default("MYR")
+  actualCost     Decimal          @default(0) @db.Decimal(14, 2)
+  actualRevenue  Decimal          @default(0) @db.Decimal(14, 2)
+  profit         Decimal          @default(0) @db.Decimal(14, 2)
+  currency       String           @default("MYR")
   notes          String?
   deletedAt      DateTime? // soft delete — non-null means in the recycle bin
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
-  documents JobDocument[]
-  tracking  JobTrackingEvent[]
-  invoices  Invoice[]
+  documents       JobDocument[]
+  tracking        JobTrackingEvent[]
+  invoices        Invoice[]
   // AP allocation back-relations. Vendor bills READ these links for the cost
   // variance view; they never write actualCost / profit / actualRevenue
   // (AP_ARCHITECTURE_DECISION.md §4 — those values keep their existing owner).
@@ -801,57 +802,57 @@ enum InvoiceStatus {
 }
 
 model Invoice {
-  id            String        @id @default(uuid())
-  invoiceNumber String        @unique // auto: INV-2026-0001
-  jobId         String?
+  id               String        @id @default(uuid())
+  invoiceNumber    String        @unique // auto: INV-2026-0001
+  jobId            String?
   // Restrict: a job with invoices must not be deletable — cancel it instead,
   // so the billing trail keeps its link to the work it billed.
-  job           Job?          @relation(fields: [jobId], references: [id], onDelete: Restrict)
-  customerId    String
-  customer      Customer      @relation(fields: [customerId], references: [id])
-  currency      String        @default("MYR")
-  subtotal      Decimal       @default(0) @db.Decimal(14, 2)
-  taxPct        Decimal       @default(0) @db.Decimal(7, 4)
-  taxAmt        Decimal       @default(0) @db.Decimal(14, 2)
-  totalAmount   Decimal       @default(0) @db.Decimal(14, 2)
+  job              Job?          @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  customerId       String
+  customer         Customer      @relation(fields: [customerId], references: [id])
+  currency         String        @default("MYR")
+  subtotal         Decimal       @default(0) @db.Decimal(14, 2)
+  taxPct           Decimal       @default(0) @db.Decimal(7, 4)
+  taxAmt           Decimal       @default(0) @db.Decimal(14, 2)
+  totalAmount      Decimal       @default(0) @db.Decimal(14, 2)
   // Denormalized running total, kept in sync with payments in the same
   // transaction (see InvoicesService) — avoids summing payments on every read.
-  amountPaid    Decimal       @default(0) @db.Decimal(14, 2)
-  status        InvoiceStatus @default(DRAFT)
-  issueDate     DateTime      @default(now())
-  dueDate       DateTime?
+  amountPaid       Decimal       @default(0) @db.Decimal(14, 2)
+  status           InvoiceStatus @default(DRAFT)
+  issueDate        DateTime      @default(now())
+  dueDate          DateTime?
   // Last time an overdue reminder email went out — the daily scan skips an
   // invoice reminded within the last 7 days rather than re-sending every run.
-  lastReminderAt DateTime?
-  notes         String?
+  lastReminderAt   DateTime?
+  notes            String?
   // Freight header printed on the tax invoice (Solid Xpress format). All
   // optional free text; ports/vessel/BL etc. are copied from the job/quote
   // on generation and stay editable while the invoice is DRAFT.
-  billToCode      String? // customer AR code, e.g. "300-M0070"
-  attn            String?
-  salesman        String?
-  terms           String? // payment terms, e.g. "CASH" / "NET 30"
-  exRate          Decimal? @db.Decimal(14, 4) // display ex-rate on the invoice header
-  pol             String?
-  pod             String?
+  billToCode       String? // customer AR code, e.g. "300-M0070"
+  attn             String?
+  salesman         String?
+  terms            String? // payment terms, e.g. "CASH" / "NET 30"
+  exRate           Decimal?      @db.Decimal(14, 4) // display ex-rate on the invoice header
+  pol              String?
+  pod              String?
   finalDestination String?
-  etd             DateTime?
-  eta             DateTime?
-  feederVessel    String? // F.VESSEL
-  motherVessel    String? // M.VESSEL
-  hblNo           String?
-  oblNo           String?
-  goods           String? // DESC. OF GOODS
-  measurement     String? // MEAS./WEIGHT, e.g. "632.4000M3 / 61753.65KGS"
-  containerInfo   String? // e.g. "10 X 40'HC"
-  noOfPackages    String? // e.g. "14986 CARTONS"
-  shipper         String?
-  consignee       String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  etd              DateTime?
+  eta              DateTime?
+  feederVessel     String? // F.VESSEL
+  motherVessel     String? // M.VESSEL
+  hblNo            String?
+  oblNo            String?
+  goods            String? // DESC. OF GOODS
+  measurement      String? // MEAS./WEIGHT, e.g. "632.4000M3 / 61753.65KGS"
+  containerInfo    String? // e.g. "10 X 40'HC"
+  noOfPackages     String? // e.g. "14986 CARTONS"
+  shipper          String?
+  consignee        String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
-  payments InvoicePayment[]
-  items    InvoiceItem[]
+  payments         InvoicePayment[]
+  items            InvoiceItem[]
   creditDebitNotes CreditDebitNote[]
 
   @@index([customerId])
@@ -862,19 +863,19 @@ model Invoice {
 }
 
 model InvoiceItem {
-  id           String   @id @default(uuid())
+  id           String  @id @default(uuid())
   invoiceId    String
-  invoice      Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice      Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   description  String
-  unitPrice    Decimal  @default(0) @db.Decimal(14, 4) // in lineCurrency
+  unitPrice    Decimal @default(0) @db.Decimal(14, 4) // in lineCurrency
   unit         String? // UOM: 40'HC / SHPT / CONT / M3...
-  quantity     Decimal  @default(1) @db.Decimal(14, 4)
-  lineCurrency String   @default("MYR") // the unit price currency shown on the row
-  fxRate       Decimal  @default(1) @db.Decimal(14, 6) // lineCurrency -> invoice currency
-  amount       Decimal  @default(0) @db.Decimal(14, 2) // qty × unitPrice × fx, excl tax, in invoice currency
-  taxExempt    Boolean  @default(false) // SVE 0% (e.g. ocean freight) vs SV
+  quantity     Decimal @default(1) @db.Decimal(14, 4)
+  lineCurrency String  @default("MYR") // the unit price currency shown on the row
+  fxRate       Decimal @default(1) @db.Decimal(14, 6) // lineCurrency -> invoice currency
+  amount       Decimal @default(0) @db.Decimal(14, 2) // qty × unitPrice × fx, excl tax, in invoice currency
+  taxExempt    Boolean @default(false) // SVE 0% (e.g. ocean freight) vs SV
   accNo        String? // freight account code, e.g. "500-004" / "030"
-  sortOrder    Int      @default(0)
+  sortOrder    Int     @default(0)
 
   @@index([invoiceId])
   @@map("invoice_items")
@@ -1074,20 +1075,30 @@ model VendorPayment {
 }
 
 model InvoicePayment {
-  id           String   @id @default(uuid())
-  invoiceId    String
+  id             String    @id @default(uuid())
+  invoiceId      String
   // Restrict: payment records are the cash ledger — an invoice with payments
   // must never be hard-deleted (cancel/void flows handle corrections).
-  invoice      Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
-  amount       Decimal  @db.Decimal(14, 2)
-  paidAt       DateTime @default(now())
-  method       String? // bank transfer, cheque, cash...
-  reference    String?
-  recordedById String?
+  invoice        Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  amount         Decimal   @db.Decimal(14, 2)
+  paidAt         DateTime  @default(now())
+  method         String? // bank transfer, cheque, cash...
+  reference      String?
+  recordedById   String?
   // Restrict: who recorded a cash payment must stay resolvable — deactivate
   // users instead of deleting them.
-  recordedBy   User?    @relation(fields: [recordedById], references: [id], onDelete: Restrict)
-  createdAt    DateTime @default(now())
+  recordedBy     User?     @relation("InvoicePaymentRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  // Soft reversal, mirroring VendorPayment. The row is preserved and flagged,
+  // never deleted, so the cash trail survives a correction — a receipt keyed
+  // to the wrong invoice used to require voiding and reissuing, which breaks
+  // invoice-number continuity and makes the SST document chain harder to
+  // explain. Reversed rows are excluded from amountPaid and from the
+  // statement's running balance.
+  reversedAt     DateTime?
+  reversedById   String?
+  reversedBy     User?     @relation("InvoicePaymentReversedBy", fields: [reversedById], references: [id], onDelete: Restrict)
+  reversalReason String?
+  createdAt      DateTime  @default(now())
 
   @@index([invoiceId])
   @@map("invoice_payments")

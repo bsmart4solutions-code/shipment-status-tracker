@@ -391,6 +391,11 @@ function InvoiceModal({ invoice, onClose }: { invoice: InvoiceRow | null; onClos
 interface Payment {
   id: string; amount: string; paidAt: string; method: string | null; reference: string | null;
   recordedBy: { fullName: string } | null;
+  // A reversed receipt is still returned and still shown — the cash trail has
+  // to record that money arrived and was backed out, not quietly drop it.
+  reversedAt: string | null;
+  reversedBy: { fullName: string } | null;
+  reversalReason: string | null;
 }
 
 function PaymentModal({ invoice, onClose }: { invoice: InvoiceRow; onClose: () => void }) {
@@ -412,6 +417,26 @@ function PaymentModal({ invoice, onClose }: { invoice: InvoiceRow; onClose: () =
     },
   });
 
+  const reverse = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      api(`/invoices/payments/${id}/reverse`, { method: 'POST', body: JSON.stringify({ reason }) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+      qc.invalidateQueries({ queryKey: ['invoice-detail', invoice.id] });
+    },
+  });
+
+  function askReverse(p: Payment) {
+    // The reason is mandatory server-side; prompting keeps the two in step
+    // rather than letting the request fail validation after the fact.
+    const reason = window.prompt(
+      `Reverse ${fmtMoney(p.amount, invoice.currency)}?
+
+The payment stays on record as reversed. Enter the reason:`,
+    );
+    if (reason && reason.trim()) reverse.mutate({ id: p.id, reason: reason.trim() });
+  }
+
   return (
     <Modal title={`Payments — ${invoice.invoiceNumber}`} onClose={onClose}>
       <div className="space-y-4">
@@ -422,14 +447,33 @@ function PaymentModal({ invoice, onClose }: { invoice: InvoiceRow; onClose: () =
         <div className="space-y-2 max-h-48 overflow-y-auto">
           {detail?.payments.length === 0 && <p className="text-sm text-gray-400">No payments recorded yet.</p>}
           {detail?.payments.map((p) => (
-            <div key={p.id} className="flex justify-between text-sm border-b border-gray-100 dark:border-gray-800 pb-1">
-              <div>
-                <div className="font-medium">{fmtMoney(p.amount, invoice.currency)}</div>
-                <div className="text-xs text-gray-400">{p.method ?? 'Payment'}{p.reference ? ` · ${p.reference}` : ''} · {p.recordedBy?.fullName ?? '-'}</div>
+            <div key={p.id} className="flex justify-between text-sm border-b border-gray-100 dark:border-gray-800 pb-1 gap-2">
+              <div className="min-w-0">
+                <div className={`font-medium ${p.reversedAt ? 'line-through text-gray-400' : ''}`}>
+                  {fmtMoney(p.amount, invoice.currency)}
+                </div>
+                <div className="text-xs text-gray-400 truncate">
+                  {p.method ?? 'Payment'}{p.reference ? ` · ${p.reference}` : ''} · {p.recordedBy?.fullName ?? '-'}
+                </div>
+                {p.reversedAt && (
+                  <div className="text-xs text-amber-600 dark:text-amber-500">
+                    Reversed {fmtDate(p.reversedAt)}{p.reversedBy ? ` by ${p.reversedBy.fullName}` : ''}
+                    {p.reversalReason ? ` — ${p.reversalReason}` : ''}
+                  </div>
+                )}
               </div>
-              <div className="text-gray-500">{fmtDate(p.paidAt)}</div>
+              <div className="text-right shrink-0">
+                <div className="text-gray-500">{fmtDate(p.paidAt)}</div>
+                {!p.reversedAt && (
+                  <button type="button" onClick={() => askReverse(p)} disabled={reverse.isPending}
+                    className="text-xs text-red-500 hover:underline disabled:opacity-50">
+                    Reverse
+                  </button>
+                )}
+              </div>
             </div>
           ))}
+          <ErrorText error={reverse.error} />
         </div>
 
         <form onSubmit={(e) => { e.preventDefault(); record.mutate(); }} className="border-t border-gray-200 dark:border-gray-800 pt-3 space-y-2">

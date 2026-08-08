@@ -83,6 +83,13 @@ export class RecordPaymentDto {
   @IsOptional() @IsString() reference?: string;
 }
 
+export class ReversePaymentDto {
+  // Mandatory, exactly as on the AP side: cash is never unwound anonymously,
+  // and "why" is the part an auditor asks about months later.
+  @IsString() @IsNotEmpty({ message: 'A reason is required to reverse a payment' })
+  reason: string;
+}
+
 export class SendInvoiceEmailDto {
   @IsOptional() @IsEmail() to?: string;
   @IsOptional() @IsString() message?: string;

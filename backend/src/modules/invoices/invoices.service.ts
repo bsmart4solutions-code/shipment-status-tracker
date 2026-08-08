@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { InvoiceStatus, Prisma } from '@prisma/client';
 import { AuditService } from '../../common/audit.service';
 import { FxService } from '../../common/fx.service';
 import { PermissionsService, RequestUser } from '../../common/permissions.service';
@@ -8,12 +8,13 @@ import { PrismaService } from '../../common/prisma.service';
 import { requestContext } from '../../common/request-context';
 import { SequenceService } from '../../common/sequence.service';
 import { PaginationDto, paged } from '../../common/dto/pagination.dto';
-import { assertInvoiceStatusTransition } from '../../common/state-machine';
+import { assertInvoicePaymentReversal, assertInvoiceStatusTransition } from '../../common/state-machine';
 import {
-  applyPayment, computeInvoiceTotals, computeTotals, priceInvoiceItem, round2 as r2,
+  applyPayment, computeInvoiceTotals, computeTotals, priceInvoiceItem,
+  recomputeInvoiceAfterReversal, round2 as r2,
   OverpaymentError, NonPositivePaymentError,
 } from './invoice.calc';
-import { CreateInvoiceDto, InvoiceItemDto, RecordPaymentDto, UpdateInvoiceDto } from './invoices.dto';
+import { CreateInvoiceDto, InvoiceItemDto, RecordPaymentDto, ReversePaymentDto, UpdateInvoiceDto } from './invoices.dto';
 import {
   assertCreditAllows, CreditBlockedError, evaluateCredit,
 } from '../customers/credit.logic';
@@ -151,7 +152,15 @@ export class InvoicesService {
         customer: true,
         job: { select: { jobNumber: true, origin: true, destination: true } },
         items: { orderBy: { sortOrder: 'asc' } },
-        payments: { orderBy: { paidAt: 'desc' }, include: { recordedBy: { select: { fullName: true } } } },
+        // Reversed rows are deliberately still returned here — the cash trail
+        // must show that money arrived and was backed out, not hide it.
+        payments: {
+          orderBy: { paidAt: 'desc' },
+          include: {
+            recordedBy: { select: { fullName: true } },
+            reversedBy: { select: { fullName: true } },
+          },
+        },
       },
     });
     if (!invoice) throw new NotFoundException('Invoice not found');
@@ -445,7 +454,7 @@ export class InvoicesService {
     const existing = await this.prisma.invoice.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Invoice not found');
     if (Number(existing.amountPaid) > 0) {
-      throw new ConflictException('Cannot cancel an invoice with recorded payments — reverse the payments first');
+      throw new ConflictException('Cannot cancel an invoice with recorded payments — reverse the payments first (POST /invoices/payments/:paymentId/reverse)');
     }
     // Mirror of the notes module's own rule (no note may be created against a
     // cancelled invoice): an invoice with live notes cannot be voided either.
@@ -463,23 +472,39 @@ export class InvoicesService {
 
   /** Record a payment; recomputes amountPaid and auto-derives PARTIALLY_PAID / PAID. */
   async recordPayment(id: string, dto: RecordPaymentDto, userId?: string) {
-    const existing = await this.prisma.invoice.findUnique({ where: { id } });
-    if (!existing) throw new NotFoundException('Invoice not found');
-    if (existing.status !== 'ISSUED' && existing.status !== 'PARTIALLY_PAID') {
-      throw new BadRequestException(`Cannot record a payment on a ${existing.status} invoice`);
-    }
+    // The note net is read outside the lock on purpose: it depends on the
+    // notes, not on this invoice's payment row, and issuing a note already
+    // locks the invoice itself.
     const noteNet = await this.issuedNoteNet(id);
-    let newAmountPaid: number;
-    let newStatus: 'PARTIALLY_PAID' | 'PAID';
-    try {
-      ({ newAmountPaid, newStatus } = applyPayment(Number(existing.totalAmount), Number(existing.amountPaid), dto.amount, noteNet));
-    } catch (e) {
-      if (e instanceof OverpaymentError || e instanceof NonPositivePaymentError) throw new BadRequestException(e.message);
-      throw e;
-    }
-    assertInvoiceStatusTransition(existing.status, newStatus);
 
     return this.prisma.$transaction(async (tx) => {
+      // Row lock, and the balance is read INSIDE it. Reading `amountPaid`
+      // before the transaction let two concurrent receipts both see the old
+      // figure and both write their own total — the second overwrote the
+      // first, so one payment row existed with its money missing from
+      // `amountPaid`, and the invoice could sit unpaid while the cash was in
+      // the bank. Same defect the integration layer found in AP reversal in
+      // Sprint 04; AP's recordPayment already locks, AR did not.
+      const rows = await tx.$queryRaw<{ id: string; status: InvoiceStatus; totalAmount: unknown; amountPaid: unknown }[]>`
+        SELECT id, status, "totalAmount", "amountPaid" FROM invoices WHERE id = ${id} FOR UPDATE`;
+      const existing = rows[0];
+      if (!existing) throw new NotFoundException('Invoice not found');
+      if (existing.status !== 'ISSUED' && existing.status !== 'PARTIALLY_PAID') {
+        throw new BadRequestException(`Cannot record a payment on a ${existing.status} invoice`);
+      }
+
+      let newAmountPaid: number;
+      let newStatus: 'PARTIALLY_PAID' | 'PAID';
+      try {
+        ({ newAmountPaid, newStatus } = applyPayment(
+          Number(existing.totalAmount), Number(existing.amountPaid), dto.amount, noteNet,
+        ));
+      } catch (e) {
+        if (e instanceof OverpaymentError || e instanceof NonPositivePaymentError) throw new BadRequestException(e.message);
+        throw e;
+      }
+      assertInvoiceStatusTransition(existing.status, newStatus);
+
       const payment = await tx.invoicePayment.create({
         data: {
           invoiceId: id,
@@ -497,6 +522,68 @@ export class InvoicesService {
       });
       return payment;
     });
+  }
+
+  /**
+   * Reverse a receipt (Sprint 07). Ported from AP, including the lock ordering
+   * that sprint had to learn the hard way.
+   *
+   * Until now a mis-keyed receipt could only be undone by cancelling the
+   * invoice and issuing a new one, which burns an invoice number — an SST
+   * document chain with unexplained gaps is exactly what an audit asks about.
+   * The payment row is preserved and flagged, never deleted, so the cash trail
+   * still shows the money arrived and was backed out, by whom and why.
+   */
+  async reversePayment(paymentId: string, dto: ReversePaymentDto, userId?: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Find the invoice, lock it, THEN re-read the payment inside that lock.
+      // Checking `reversedAt` before taking the lock let two concurrent
+      // reversals both see null and both proceed (AP, Sprint 04).
+      const located = await tx.invoicePayment.findUnique({ where: { id: paymentId }, select: { invoiceId: true } });
+      if (!located) throw new NotFoundException('Payment not found');
+
+      const rows = await tx.$queryRaw<{ id: string; status: InvoiceStatus; totalAmount: unknown; invoiceNumber: string }[]>`
+        SELECT id, status, "totalAmount", "invoiceNumber" FROM invoices WHERE id = ${located.invoiceId} FOR UPDATE`;
+      const invoice = rows[0];
+      if (!invoice) throw new NotFoundException('Invoice not found');
+
+      const payment = await tx.invoicePayment.findUnique({ where: { id: paymentId } });
+      if (!payment) throw new NotFoundException('Payment not found');
+      if (payment.reversedAt) throw new BadRequestException('This payment has already been reversed');
+
+      await tx.invoicePayment.update({
+        where: { id: paymentId },
+        data: { reversedAt: new Date(), reversedById: userId ?? null, reversalReason: dto.reason },
+      });
+
+      const remaining = await tx.invoicePayment.aggregate({
+        where: { invoiceId: payment.invoiceId, reversedAt: null },
+        _sum: { amount: true },
+      });
+      const noteNet = await this.issuedNoteNet(payment.invoiceId);
+      const { newAmountPaid, newStatus } = recomputeInvoiceAfterReversal(
+        Number(invoice.totalAmount), Number(remaining._sum.amount ?? 0), noteNet,
+      );
+      assertInvoicePaymentReversal(invoice.status, newStatus);
+
+      await tx.invoice.update({
+        where: { id: payment.invoiceId },
+        data: { amountPaid: newAmountPaid, status: newStatus },
+      });
+      return {
+        invoiceId: payment.invoiceId, invoiceNumber: invoice.invoiceNumber, amount: Number(payment.amount),
+        previousStatus: invoice.status, newAmountPaid, newStatus,
+      };
+    });
+    await this.audit.log({
+      userId, action: 'REVERSE_PAYMENT', entityType: 'invoicePayment', entityId: paymentId,
+      detail: {
+        invoiceId: result.invoiceId, invoiceNumber: result.invoiceNumber, amount: result.amount,
+        reason: dto.reason, previousStatus: result.previousStatus,
+        newStatus: result.newStatus, newAmountPaid: result.newAmountPaid,
+      },
+    });
+    return result;
   }
 
   /**
@@ -634,7 +721,10 @@ export class InvoicesService {
     const asOf = asOfDate ? new Date(asOfDate) : new Date();
     const invoices = await this.prisma.invoice.findMany({
       where: { customerId, status: { in: ['ISSUED', 'PARTIALLY_PAID', 'PAID'] }, issueDate: { lte: asOf } },
-      include: { payments: true },
+      // Reversed receipts are excluded: the statement is the customer's
+      // balance, and money that was backed out never reduced what they owe.
+      // The reversal stays visible on the invoice detail and in the audit log.
+      include: { payments: { where: { reversedAt: null } } },
       orderBy: { issueDate: 'asc' },
     });
     const notes = await this.prisma.creditDebitNote.findMany({

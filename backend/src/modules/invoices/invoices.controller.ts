@@ -5,7 +5,8 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { RequestUser } from '../../common/permissions.service';
 import {
-  CreateInvoiceDto, IssueInvoiceDto, ListInvoicesDto, RecordPaymentDto, SendInvoiceEmailDto, UpdateInvoiceDto,
+  CreateInvoiceDto, IssueInvoiceDto, ListInvoicesDto, RecordPaymentDto, ReversePaymentDto,
+  SendInvoiceEmailDto, UpdateInvoiceDto,
 } from './invoices.dto';
 import { InvoicesService } from './invoices.service';
 
@@ -21,6 +22,21 @@ export class InvoicesController {
 
   @Get('aging') @RequirePermission('invoices.read')
   aging() { return this.invoices.agingReport(); }
+
+  /**
+   * Declared before `:id` on purpose — Nest matches routes in declaration
+   * order, so a later `payments/...` path would be swallowed by `:id`.
+   * Keyed by payment, not invoice: the payment id alone identifies it, and
+   * requiring the invoice id too would let a caller pass a mismatched pair.
+   */
+  @Post('payments/:paymentId/reverse') @RequirePermission('invoices.write')
+  reversePayment(
+    @Param('paymentId') paymentId: string,
+    @Body() dto: ReversePaymentDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    return this.invoices.reversePayment(paymentId, dto, user.id);
+  }
 
   @Get(':id') @RequirePermission('invoices.read')
   get(@Param('id') id: string) { return this.invoices.get(id); }

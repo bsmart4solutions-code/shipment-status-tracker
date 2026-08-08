@@ -1,5 +1,6 @@
 import {
   assertBookingStatusTransition,
+  assertInvoicePaymentReversal,
   assertInvoiceStatusTransition,
   assertJobStatusTransition,
   assertMilestoneTransition,
@@ -221,5 +222,40 @@ describe('State machine — shipment milestones (Sprint 06)', () => {
     for (const to of MILESTONE_SEQUENCE.filter((m) => m !== 'DELIVERED') as MilestoneStatus[]) {
       expect(() => assertMilestoneTransition('DELIVERED', to)).toThrow();
     }
+  });
+});
+
+describe('assertInvoicePaymentReversal — the one legitimate way back', () => {
+  it('lets a reversal reopen a PAID invoice, which the forward rules forbid', () => {
+    // The contrast IS the point: PAID is terminal for every ordinary
+    // transition, and only an explicit audited reversal may undo it.
+    expect(() => assertInvoiceStatusTransition('PAID', 'PARTIALLY_PAID')).toThrow();
+    expect(() => assertInvoicePaymentReversal('PAID', 'PARTIALLY_PAID')).not.toThrow();
+    expect(() => assertInvoicePaymentReversal('PAID', 'ISSUED')).not.toThrow();
+  });
+
+  it('allows PARTIALLY_PAID back to ISSUED when the last receipt is undone', () => {
+    expect(() => assertInvoicePaymentReversal('PARTIALLY_PAID', 'ISSUED')).not.toThrow();
+    expect(() => assertInvoicePaymentReversal('PARTIALLY_PAID', 'PARTIALLY_PAID')).not.toThrow();
+  });
+
+  it('never moves an invoice FORWARD through the reversal path', () => {
+    // Reversing takes cash away; it must not be a back door to settling.
+    expect(() => assertInvoicePaymentReversal('ISSUED', 'PAID')).toThrow(/cannot move an invoice/);
+    expect(() => assertInvoicePaymentReversal('ISSUED', 'PARTIALLY_PAID')).toThrow();
+    expect(() => assertInvoicePaymentReversal('PARTIALLY_PAID', 'PAID')).toThrow();
+  });
+
+  it('never reaches DRAFT or CANCELLED — an issued document stays issued', () => {
+    for (const from of ['PAID', 'PARTIALLY_PAID', 'ISSUED'] as const) {
+      expect(() => assertInvoicePaymentReversal(from, 'DRAFT')).toThrow();
+      expect(() => assertInvoicePaymentReversal(from, 'CANCELLED')).toThrow();
+    }
+  });
+
+  it('has no route out of DRAFT or CANCELLED at all', () => {
+    // Neither can hold payments, so neither can have one reversed.
+    expect(() => assertInvoicePaymentReversal('DRAFT', 'DRAFT')).toThrow();
+    expect(() => assertInvoicePaymentReversal('CANCELLED', 'ISSUED')).toThrow();
   });
 });
