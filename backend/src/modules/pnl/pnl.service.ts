@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { FxConverter, FxService } from '../../common/fx.service';
+import { FxService, HistoricalFxConverter } from '../../common/fx.service';
 import { PrismaService } from '../../common/prisma.service';
 
 export interface PnlFilter {
@@ -22,15 +22,32 @@ export interface PnlFilter {
  *
  * All amounts are converted to the base currency before bucketing —
  * documents carry their own currency and must never be summed raw.
+ *
+ * Conversion uses the rate in effect on each document's OWN date, not the
+ * latest rate. A report is a statement about a period, so it has to give the
+ * same answer every time it is run: with the latest rate, entering one new
+ * rate today silently rewrote every past period, and a March margin shown to
+ * the accountant in April no longer matched the one shown in August. The date
+ * used is the same one that decides which bucket the row lands in, so period
+ * membership and valuation can never disagree — a document counted in March is
+ * valued at March's rate. Same fix, same reasoning as the AP cost variance in
+ * Sprint 03A (H-2).
  */
 @Injectable()
 export class PnlService {
   constructor(private prisma: PrismaService, private fx: FxService) {}
 
   async report(filter: PnlFilter) {
-    const fx = await this.fx.converter();
+    const fx = await this.fx.historicalConverter();
     const result = filter.source === 'jobs' ? await this.fromJobs(filter, fx) : await this.fromQuotations(filter, fx);
-    return { ...result, baseCurrency: fx.baseCurrency, fxWarning: this.fx.warning(fx) };
+    return {
+      ...result,
+      baseCurrency: fx.baseCurrency,
+      fxWarning: this.fx.warning(fx),
+      // Lets a caller mark the figures as unreliable rather than having to
+      // parse the warning text — same additive field the AP variance exposes.
+      fxIncomplete: fx.missing.size > 0,
+    };
   }
 
   private periodKey(date: Date, groupBy: string): string {
@@ -41,7 +58,7 @@ export class PnlService {
     return `${y}-${String(m).padStart(2, '0')}`;
   }
 
-  private async fromQuotations(filter: PnlFilter, fx: FxConverter) {
+  private async fromQuotations(filter: PnlFilter, fx: HistoricalFxConverter) {
     const groupBy = filter.groupBy ?? 'month';
     // vendor/service grouping needs item granularity; the rest can use headers
     const itemLevel = groupBy === 'vendor' || groupBy === 'service' || filter.vendorId || filter.serviceId;
@@ -69,8 +86,8 @@ export class PnlService {
           this.periodKey(q.quoteDate, groupBy);
         const b = buckets.get(key) ?? { revenue: 0, cost: 0, count: 0 };
         // revenue = net sell before tax (sellingPrice − taxAmt) for a true margin view
-        b.revenue += fx.toBase(Number(q.sellingPrice) - Number(q.taxAmt), q.currency);
-        b.cost += fx.toBase(Number(q.totalCost), q.currency);
+        b.revenue += fx.toBaseAt(Number(q.sellingPrice) - Number(q.taxAmt), q.currency, q.quoteDate);
+        b.cost += fx.toBaseAt(Number(q.totalCost), q.currency, q.quoteDate);
         b.count += 1;
         buckets.set(key, b);
       }
@@ -98,15 +115,15 @@ export class PnlService {
         groupBy === 'salesperson' ? (i.quotation.salesPerson?.fullName ?? '(Unassigned)') :
         this.periodKey(i.quotation.quoteDate, groupBy);
       const b = buckets.get(key) ?? { revenue: 0, cost: 0, count: 0 };
-      b.revenue += fx.toBase(Number(i.totalSell), i.quotation.currency);
-      b.cost += fx.toBase(Number(i.totalCost), i.quotation.currency);
+      b.revenue += fx.toBaseAt(Number(i.totalSell), i.quotation.currency, i.quotation.quoteDate);
+      b.cost += fx.toBaseAt(Number(i.totalCost), i.quotation.currency, i.quotation.quoteDate);
       b.count += 1;
       buckets.set(key, b);
     }
     return this.toRows(buckets);
   }
 
-  private async fromJobs(filter: PnlFilter, fx: FxConverter) {
+  private async fromJobs(filter: PnlFilter, fx: HistoricalFxConverter) {
     const groupBy = filter.groupBy ?? 'month';
     const jobs = await this.prisma.job.findMany({
       where: {
@@ -128,8 +145,9 @@ export class PnlService {
         groupBy === 'vendor' ? (j.vendor?.name ?? '(No vendor)') :
         this.periodKey(date, groupBy);
       const b = buckets.get(key) ?? { revenue: 0, cost: 0, count: 0 };
-      b.revenue += fx.toBase(Number(j.actualRevenue), j.currency);
-      b.cost += fx.toBase(Number(j.actualCost), j.currency);
+      // `date` is the same value the period key above is derived from.
+      b.revenue += fx.toBaseAt(Number(j.actualRevenue), j.currency, date);
+      b.cost += fx.toBaseAt(Number(j.actualCost), j.currency, date);
       b.count += 1;
       buckets.set(key, b);
     }

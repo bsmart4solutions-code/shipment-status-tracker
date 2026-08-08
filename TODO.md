@@ -89,7 +89,32 @@ _(none open — both items below were fixed 2026-08-02)_
 
 ## Newly logged during Sprint 03A
 
-- [ ] **P&L is not historically stable.** `PnlService` converts job revenue/cost with `FxService.converter()` (latest rate), so past periods re-value whenever a rate is added — the same class of problem H-2 fixed for AP. Demonstrated accidentally during Sprint 03A verification: inserting one test rate moved the P&L by exactly `180 × (9.99 − 4.45)` on cost. `FxService.historicalConverter()` now exists and is the ready-made fix; the question is which date each figure should use (job date? invoice date?) — a Product Owner decision, not a code change.
+- [x] **P&L is now historically stable.** Fixed 2026-08-08. `PnlService` converts
+  through `FxService.historicalConverter()`, valuing every row at **the same
+  date that decides which bucket it lands in** — quotations at `quoteDate`, jobs
+  at `shipmentDate ?? createdAt`. That answered the open "which date?" question
+  without needing a policy decision: any other choice lets period membership and
+  valuation disagree, so a document counted in March could be priced at August's
+  rate. Also adds `fxIncomplete` alongside the existing `fxWarning`, matching the
+  AP variance response.
+
+  Verified live by reproducing the original incident: with a USD quotation dated
+  2026-07-18, inserting a `USD→MYR 9.99` rate effective 2026-08-01 left the P&L
+  **numerically identical** (3157.20 / 2521.00 / 636.20), while the dashboard —
+  which still uses the latest rate — moved to 4353.84. Same rate, same moment:
+  proof the rate really took effect and that only the P&L is now immune.
+  7 unit tests, mutation-checked (reverting to `converter()` fails 4 of them).
+
+- [ ] **Same defect still present in every other latest-rate consumer.** Surfaced
+  by the verification above — the dashboard revenue moved by 1196.64 on a single
+  back-filled rate. `FxService.converter()` is still used by `dashboard`,
+  `customers` (×3, incl. credit exposure), `invoices` (×2, incl. AR aging),
+  `quotations`, `reports` (×2) and `vendors`. **Not all of these are wrong**:
+  credit exposure *should* use today's rate, because it answers "what is this
+  customer worth to us right now". The ones that need the historical basis are
+  the ones making statements about a **past period** — `reports` most of all,
+  since exported figures get filed. Needs a per-caller decision, not a blanket
+  swap.
 - [ ] **Intermittent test flake diagnosed, not fixed.** One run in five failed on `rate-sheet.parser.spec.ts` (1 of 242) and never reproduced in isolation or across four further full runs. Most likely the exceljs round-trip test (~1.5 s alone) exceeding Jest's 5 s default under parallel load. Fix is a per-test timeout; out of Sprint 03A's approved scope.
 
 ## Sprint 04 follow-ups
