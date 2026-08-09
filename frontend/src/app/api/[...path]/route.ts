@@ -33,9 +33,17 @@ async function proxyRequest(method: string, path: string[], request: Request) {
     url.searchParams.append(key, value);
   }
 
-  const body = method !== 'GET' && method !== 'DELETE' ? await request.text() : undefined;
+  // arrayBuffer, NOT text: `.text()` decodes the body as UTF-8, which replaces
+  // every byte sequence that is not valid UTF-8 — so a PDF or an image inside a
+  // multipart upload arrives corrupted AND a different length than the
+  // Content-Length header we forward, leaving the backend waiting for bytes
+  // that never come. Every file upload through the browser timed out at 408
+  // because of this line.
+  const body = method !== 'GET' && method !== 'DELETE' ? await request.arrayBuffer() : undefined;
   const headers = new Headers(request.headers);
   headers.delete('host'); // Remove host header to prevent issues
+  // Let fetch compute it from the body we actually send.
+  headers.delete('content-length');
 
   try {
     const response = await fetch(url.toString(), {
@@ -47,8 +55,15 @@ async function proxyRequest(method: string, path: string[], request: Request) {
     // Copy response headers
     const responseHeaders = new Headers(response.headers);
     responseHeaders.set('access-control-allow-origin', '*');
+    // fetch has already decompressed the body, so passing the original
+    // content-encoding through would tell the browser to decompress it again.
+    // Length is recomputed for the same reason.
+    responseHeaders.delete('content-encoding');
+    responseHeaders.delete('content-length');
 
-    return new Response(await response.text(), {
+    // Same reasoning as the request body, in reverse: a downloaded PDF or image
+    // must not be round-tripped through a UTF-8 string.
+    return new Response(await response.arrayBuffer(), {
       status: response.status,
       headers: responseHeaders,
     });

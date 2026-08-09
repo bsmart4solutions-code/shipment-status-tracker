@@ -78,14 +78,39 @@ _(none open — both items below were fixed 2026-08-02)_
   bucket config, zero code), M-3 (delete ordering + orphan sweep), M-5
   (`ContentType` on put, before presigned URLs), M-2 (workbook decompression
   guard), M-1 (boot-time bucket probe), M-6 (MinIO CI integration spec),
-  M-7 (generalized attachment model — **decided** in ADR §7: polymorphic `attachments`; build deferred by PO Decision 5),
-  L-1 … L-8.
+  L-1 … L-8. **M-7 closed 2026-08-09** — the polymorphic `attachments` model
+  designed in ADR §7 is built and adopted by customers and vendors; vendor bills
+  and bookings now need one enum value each rather than a new table.
 
 ## ARCHITECTURE_REVIEW_SPRINT03 remediation status
 
 - [x] **H-1 and H-2 fixed in Sprint 03A** (2026-07-28), plus the approved P2002 → 409 mapping — see `SPRINT_03A_REPORT.md`.
 - [x] **M-3 and M-7 closed in Sprint 04** — concurrency is asserted under genuinely concurrent requests, and the AP ownership-boundary regression is automated in CI. M-3's proof immediately found a real payment-reversal race, now fixed.
 - [ ] Open, in the review's recommended order: M-9 (clearable header job), M-2 (one allocation predicate shared by the list filter and the variance), M-1 (unallocated spend visibility), M-8 (proportional tax allocation + AP/job reconciliation), M-5 (down migration or amend the plan), M-6 (state the `jobs.read` exposure decision), L-1 … L-9.
+
+## Newly logged 2026-08-09
+
+- [x] **Every file upload through the browser was broken — fixed.** The Next.js
+  API proxy read request bodies with `await request.text()`, which decodes as
+  UTF-8 and mangles every byte sequence that is not valid UTF-8. The re-encoded
+  multipart body no longer matched the forwarded `Content-Length`, so the
+  backend waited for bytes that never arrived and every upload died at **408**.
+  Confirmed pre-existing, not new: **job document upload** (shipped long before
+  this) failed identically through the proxy while succeeding on a direct call.
+  The response path had the mirror-image bug — binary downloads were round-
+  tripped through a UTF-8 string. Both now use `arrayBuffer()`; `content-length`
+  and `content-encoding` are recomputed rather than forwarded stale. Verified by
+  MD5: original, direct download and proxied download are byte-identical.
+
+- [ ] **Job document download link sends no credentials.** `jobs/page.tsx` uses a
+  bare `<a href="/api/documents/:id/download">`. The JWT lives in localStorage,
+  not a cookie, so a link navigation carries no Authorization header. The new
+  `downloadFile()` helper in `lib/api.ts` does this correctly and job documents
+  should adopt it — small, but it is a user-visible 401.
+
+- [ ] **CUST-0003's address begins with a stray `": "`** which prints on every
+  invoice, quotation and now the statement. Business data, not a template bug —
+  left exactly as found.
 
 ## Newly logged during Sprint 03A
 
@@ -137,7 +162,10 @@ _(none open — both items below were fixed 2026-08-02)_
 
 ## Sprint 03 follow-ups (deferred by design)
 
-- [ ] **Vendor bill attachments** — deferred by PO Decision 5, so an approved payable has no scanned vendor invoice in the system. Interim: job-linked bills can use the existing Job Documents feature; standalone bills have no home. Design settled in `AP_ARCHITECTURE_DECISION.md` §7 (polymorphic `attachments`). **Depends on the R2 cutover above.**
+- [ ] **Vendor bill attachments** — the blocking part is now done: `attachments`
+  exists (2026-08-09). Remaining work is adding `VENDOR_BILL` to the
+  `AttachmentEntity` enum plus a controller pair, roughly an hour. Does NOT
+  depend on the R2 cutover — the local storage driver has always worked.
 - [ ] **Vendor credit/debit notes** — design settled (ADR §6, separate `vendor_credit_debit_notes` model reusing the calc engine + state machine). The `noteNet` parameter is already wired through `applyVendorPayment`, so netting arrives without a signature change.
 - [ ] **Job cost detail lines** (ADR §5.6) — the structural fix for `Job.actualCost` being seeded with the quotation estimate. Until then the cost panel labels the recorded cost as unconfirmed.
 - [x] **AR payment reversal — done 2026-08-08.** `POST /invoices/payments/:paymentId/reverse`,

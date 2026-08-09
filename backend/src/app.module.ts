@@ -31,6 +31,7 @@ import { CreditDebitNotesModule } from './modules/credit-debit-notes/credit-debi
 import { PayablesModule } from './modules/payables/payables.module';
 import { RecycleBinModule } from './modules/recycle-bin/recycle-bin.module';
 import { ImportsModule } from './modules/imports/imports.module';
+import { AttachmentsModule } from './modules/attachments/attachments.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 
 @Module({
@@ -65,6 +66,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
     PayablesModule,
     RecycleBinModule,
     ImportsModule,
+    AttachmentsModule,
     DocumentsModule,
   ],
   providers: [

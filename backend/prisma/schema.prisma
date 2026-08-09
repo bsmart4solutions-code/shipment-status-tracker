@@ -59,6 +59,7 @@ model User {
   vendorPaymentsRecorded  VendorPayment[]     @relation("VendorPaymentRecordedBy")
   vendorPaymentsReversed  VendorPayment[]     @relation("VendorPaymentReversedBy")
   bookingsCreated         Booking[]           @relation("BookingCreatedBy")
+  attachmentsUploaded     Attachment[]        @relation("AttachmentUploadedBy")
 
   @@map("users")
 }
@@ -1102,6 +1103,46 @@ model InvoicePayment {
 
   @@index([invoiceId])
   @@map("invoice_payments")
+}
+
+// ───────────────────── Attachments (AP_ARCHITECTURE_DECISION §7) ─────────────────────
+// Polymorphic binary evidence, keyed by entityType + entityId. Designed in
+// Sprint 03 and deferred then; built here so customer and vendor documents do
+// not become a third and fourth near-identical per-module table — which is
+// precisely the duplication §7.3 accepted a trade-off to avoid.
+//
+// `storedPath` uses the same key convention as JobDocument, so both tables
+// address the same bucket and JobDocument can later be folded in with a
+// metadata-only migration (§7.4) — no object is ever moved or re-uploaded.
+
+enum AttachmentEntity {
+  CUSTOMER
+  VENDOR
+  // VENDOR_BILL / BOOKING / JOB extend this as those modules adopt it — one
+  // line each, which is the whole point of the shared table.
+}
+
+model Attachment {
+  id           String           @id @default(uuid())
+  entityType   AttachmentEntity
+  // Deliberately NOT a foreign key: a polymorphic reference cannot carry one
+  // (§7.3). The owning service deletes its own attachments, and the storage
+  // orphan sweep covers what slips through. Binary evidence is not a financial
+  // record, so a stale row is an acceptable cost.
+  entityId     String
+  storedPath   String
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  category     String?
+  notes        String?
+  uploadedById String?
+  uploadedBy   User?            @relation("AttachmentUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploadedAt   DateTime         @default(now())
+
+  // The only access path.
+  @@index([entityType, entityId])
+  @@map("attachments")
 }
 
 model JobDocument {

@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { Modal, ErrorText, SearchableSelect } from '@/components/ui';
+import { AttachmentsPanel } from '@/components/attachments-panel';
 import { api } from '@/lib/api';
 
 const TABS = ['General', 'Contacts', 'Addresses', 'Finance', 'Sales & Ops', 'CRM', 'Docs & Bank', 'Notes'] as const;
@@ -302,6 +303,7 @@ export function CustomerModal({ customer, onClose }: { customer: { id: string; c
 
         {tab === 'Docs & Bank' && (
           <div className="space-y-4">
+            <AttachmentsPanel owner="customers" ownerId={customer?.id ?? null} />
             <ChildList
               title="Documents" rows={docs} onAdd={() => setDocs([...docs, emptyDoc()])}
               onRemove={(i) => setDocs(docs.filter((_, x) => x !== i))}

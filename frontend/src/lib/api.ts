@@ -76,6 +76,28 @@ export async function downloadCsv(path: string, filename: string) {
   URL.revokeObjectURL(a.href);
 }
 
+/**
+ * Download an authenticated binary file and trigger a browser save.
+ *
+ * A plain `<a href="/api/…/download">` cannot be used: the JWT lives in
+ * localStorage, not a cookie, so a link navigation sends no Authorization
+ * header and the request comes back 401.
+ */
+export async function downloadFile(path: string, filename: string) {
+  const token = getToken();
+  const res = await fetch(`/api${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, body.message || res.statusText);
+  }
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 /** Multipart upload — lets the browser set the multipart boundary itself. */
 export async function uploadFile<T = unknown>(path: string, file: File, fields: Record<string, string> = {}): Promise<T> {
   const token = getToken();

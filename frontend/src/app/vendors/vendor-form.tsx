@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import { Modal, ErrorText, SearchableSelect } from '@/components/ui';
+import { AttachmentsPanel } from '@/components/attachments-panel';
 import { api } from '@/lib/api';
 
 const TABS = ['General', 'Contacts', 'Addresses', 'Finance', 'Procurement', 'Compliance', 'Docs & Bank', 'Notes'] as const;
@@ -245,6 +246,7 @@ export function VendorModal({ vendor, onClose }: { vendor: { id: string; code: s
 
         {tab === 'Docs & Bank' && (
           <div className="space-y-4">
+            <AttachmentsPanel owner="vendors" ownerId={vendor?.id ?? null} />
             <ChildList title="Documents" rows={docs} onAdd={() => setDocs([...docs, emptyDoc()])}
               onRemove={(i) => setDocs(docs.filter((_, x) => x !== i))}
               onChange={(i, patch) => setDocs(docs.map((x, ix) => (ix === i ? { ...x, ...patch } : x)))}
