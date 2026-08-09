@@ -56,11 +56,14 @@ export class NotificationsService {
   async scan() {
     const now = new Date();
     const period = `${now.getFullYear()}-${now.getMonth() + 1}`;
-    const [expiryDays, rateDays, lowMargin, highCost] = await Promise.all([
+    const [expiryDays, rateDays, lowMargin, highCost, cutoffHours] = await Promise.all([
       this.settings.get('alerts.quotationExpiryDays', 7),
       this.settings.get('alerts.rateExpiryDays', 14),
       this.settings.get('alerts.lowMarginPct', 10),
       this.settings.get('alerts.highCostAmount', 50000),
+      // Hours, not days: SI cut-offs are quoted in hours before departure and
+      // a day's granularity is too coarse to act on.
+      this.settings.get('alerts.bookingCutoffHours', 48),
     ]);
     const soon = (days: number) => new Date(now.getTime() + days * 86400000);
     let created = 0;
@@ -150,6 +153,60 @@ export class NotificationsService {
         } catch (e) {
           this.logger.error(`Overdue reminder email failed for ${inv.invoiceNumber}`, e as Error);
         }
+      }
+    }
+
+    // 7. Booking cut-offs — SI / VGM / CY.
+    //
+    // Different in kind from every alert above: an overdue invoice is late but
+    // still collectable, whereas a missed SI cut-off means the container does
+    // not sail. So this fires BEFORE the deadline, and keeps firing daily
+    // while the window is open rather than once per week.
+    //
+    // The bookings screen already colours a passed cut-off red, but that only
+    // helps whoever happens to be looking at it.
+    const cutoffWindow = new Date(now.getTime() + cutoffHours * 3600000);
+    // Missed cut-offs stay actionable for a few days (re-book, request a
+    // late-SI exception), then stop nagging.
+    const missedSince = new Date(now.getTime() - 3 * 86400000);
+    const dayPeriod = Math.floor(now.getTime() / 86400000);
+
+    const bookings = await this.prisma.booking.findMany({
+      where: {
+        status: { in: ['DRAFT', 'CONFIRMED'] },
+        OR: [
+          { siCutoff: { gte: missedSince, lte: cutoffWindow } },
+          { vgmCutoff: { gte: missedSince, lte: cutoffWindow } },
+          { cyCutoff: { gte: missedSince, lte: cutoffWindow } },
+        ],
+      },
+      include: { customer: { select: { companyName: true } } },
+    });
+
+    const CUTOFFS = [
+      { key: 'siCutoff', label: 'SI', short: 'SI' },
+      { key: 'vgmCutoff', label: 'VGM', short: 'VGM' },
+      { key: 'cyCutoff', label: 'CY', short: 'CY' },
+    ] as const;
+
+    for (const b of bookings) {
+      for (const c of CUTOFFS) {
+        const at = b[c.key] as Date | null;
+        if (!at || at < missedSince || at > cutoffWindow) continue;
+
+        const hoursAway = Math.round((at.getTime() - now.getTime()) / 3600000);
+        const passed = hoursAway < 0;
+        const when = at.toISOString().slice(0, 16).replace('T', ' ');
+        const title = passed ? `${c.label} cut-off missed` : `${c.label} cut-off approaching`;
+        const message = passed
+          ? `${b.bookingNumber} (${b.customer.companyName}) — ${c.label} cut-off passed ${when} (${Math.abs(hoursAway)}h ago)`
+          : `${b.bookingNumber} (${b.customer.companyName}) — ${c.label} cut-off ${when}, in ${hoursAway}h`;
+
+        // Per booking + cut-off + day: one reminder a day while it matters,
+        // not one an hour, and not a single alert that scrolls away unseen.
+        await this.push('BOOKING_CUTOFF', title, message, 'booking', b.id,
+          `CUTOFF:${b.id}:${c.short}:${dayPeriod}`);
+        created++;
       }
     }
 

@@ -1208,6 +1208,10 @@ enum NotificationType {
   HIGH_COST
   LOW_MARGIN
   INVOICE_OVERDUE
+  // Approaching or missed SI / VGM / CY cut-off. Unlike an overdue invoice —
+  // late but still collectable — a missed cut-off means the container does not
+  // sail, so this alert has to arrive BEFORE the deadline, not after.
+  BOOKING_CUTOFF
   SYSTEM
 }
 

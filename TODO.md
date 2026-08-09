@@ -183,10 +183,15 @@ should not go into production first.
   legacy job's journey; touches only the timeline and the milestone field,
   never money or status), but it is a Product Owner call — see
   `SPRINT_06_REPORT.md` §10.6.
-- [ ] **Cut-off alerting.** The bookings screen colours a passed SI/VGM cut-off
-  red, but nothing pushes a notification. Wiring it into the existing
-  `NotificationsService.scan()` is small and follows the pattern Sprint 05 used
-  for overdue invoices.
+- [x] **Cut-off alerting — done 2026-08-09.** New `BOOKING_CUTOFF` notification
+  covering SI, VGM and CY on DRAFT/CONFIRMED bookings. Deliberately unlike the
+  overdue-invoice alert it was modelled on: an overdue invoice is late but still
+  collectable, a missed SI cut-off means the container does not sail, so this
+  fires **before** the deadline (`alerts.bookingCutoffHours`, default 48) and
+  repeats **daily** while the window is open rather than weekly. A cut-off
+  missed more than 3 days ago stops nagging — past the point where re-booking or
+  a late-SI exception is realistic. Dedupe is keyed per booking + cut-off type +
+  day so SI and VGM never suppress each other.
 
 ## Next sprint candidate (needs Product Owner approval first)
 
