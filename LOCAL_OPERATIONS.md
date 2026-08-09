@@ -1,7 +1,7 @@
 # 本地运营手册
 
 **适用场景：** 在这台 Windows 电脑上，用这套系统跑真实的货代业务。
-**最后更新：** 2026-08-03
+**最后更新：** 2026-08-09
 
 ---
 
@@ -175,6 +175,7 @@ node scripts/clear-demo-data.js --yes
 | 端口被占 | 跑 `stop-app.bat` 清干净，再 `start-app.bat` |
 | 开票被拒说汇率缺失 | 设置 → Exchange Rates 加上该币种 |
 | 邮件没发出去 | 正常 —— 未配 SMTP 时是模拟模式，见第 3 节 |
+| 快到截关了没人提醒 | 系统每 30 分钟扫一次，**提前 48 小时**开始每天提醒一次（通知中心）。要改提前量：设置 → `alerts.bookingCutoffHours` |
 | 想回到某天的数据 | `node scripts/restore-db.js` 看备份列表 |
 
 ### 查日志
@@ -189,6 +190,7 @@ node scripts/clear-demo-data.js --yes
 |---|---|
 | 每天 | 正常用就行，备份自动跑 |
 | 每周 | 跑一次 `node scripts/restore-db.js` 看看最新备份日期对不对 |
+| **每季** | 跑一次 `node scripts/verify-backup.js` —— 真正验证备份**能恢复**，不只是文件在（不碰正式库） |
 | 每月 | 确认 OneDrive 真的把 `db-backup` 同步上去了（网页版 OneDrive 里看一眼） |
 | 换电脑时 | 见 `README.md` 的「Setting up on a new machine」，把最新备份恢复过去 |
 
@@ -198,7 +200,7 @@ node scripts/clear-demo-data.js --yes
 
 这些不影响日常使用，但你应该知道：
 
-- **AR 收款不能冲销** —— 收错款目前只能作废发票重开。（AP 应付那边可以冲销。）
+- ~~AR 收款不能冲销~~ — ✅ **已于 2026-08-08 补上**：发票 → Payments → 每笔收款后面的 **Reverse**（必须填原因）。冲销后 AR 余额自动回来，那笔收款仍留在记录里标为已冲销，不会从对账单上算给客户。
 - **客户/供应商文档只能贴链接**，不能上传文件（工单文档可以上传）。
 - ~~订舱单和对账单没有 PDF~~ — ✅ **已于 2026-08-09 补上**（订舱列表 → Print；客户 → Statement → Print / PDF）。工单仍无打印页。
 - **订舱、贷记单、借记单、运价列表没有 Excel 导出**（其余列表都有）。
