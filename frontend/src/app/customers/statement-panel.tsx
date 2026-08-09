@@ -11,7 +11,8 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Mail } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Mail, Printer } from 'lucide-react';
 import { ErrorText, Modal, Table } from '@/components/ui';
 import { api } from '@/lib/api';
 import { fmtMoney } from '@/lib/utils';
@@ -34,6 +35,7 @@ export function StatementPanel({ customerId, customerName, onClose }: {
   customerId: string; customerName: string; onClose: () => void;
 }) {
   const [emailing, setEmailing] = useState(false);
+  const router = useRouter();
   const { data, isLoading, error } = useQuery({
     queryKey: ['customer-statement', customerId],
     queryFn: () => api<Statement>(`/customers/${customerId}/statement`),
@@ -80,9 +82,15 @@ export function StatementPanel({ customerId, customerName, onClose }: {
               ))}
             </Table>
 
-            <button className="btn-primary w-full justify-center" onClick={() => setEmailing(true)}>
-              <Mail size={15} /> Email Statement
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button className="btn-ghost justify-center"
+                onClick={() => router.push(`/customers/${customerId}/statement/print`)}>
+                <Printer size={15} /> Print / PDF
+              </button>
+              <button className="btn-primary justify-center" onClick={() => setEmailing(true)}>
+                <Mail size={15} /> Email Statement
+              </button>
+            </div>
           </>
         )}
 

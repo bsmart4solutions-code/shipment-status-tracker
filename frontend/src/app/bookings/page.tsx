@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Anchor, Plus } from 'lucide-react';
+import { Anchor, Plus, Printer } from 'lucide-react';
 import { Shell } from '@/components/shell';
 import { ErrorText, Modal, Pagination, SearchableSelect, StatusBadge, Table } from '@/components/ui';
 import { api, hasPermission } from '@/lib/api';
@@ -105,6 +105,12 @@ export default function BookingsPage() {
             <td className="td"><StatusBadge status={b.status} /></td>
             <td className="td">
               <div className="flex gap-2 justify-end">
+                {/* Available on cancelled bookings too — a cancelled one still
+                    has to be evidenced to the carrier. */}
+                <button className="text-primary hover:underline text-sm inline-flex items-center gap-1"
+                  onClick={() => router.push(`/bookings/${b.id}/print`)}>
+                  <Printer size={13} /> Print
+                </button>
                 {canWrite && b.status === 'DRAFT' && (
                   <button className="text-primary hover:underline text-sm" onClick={() => setEditing(b)}>Edit</button>
                 )}
