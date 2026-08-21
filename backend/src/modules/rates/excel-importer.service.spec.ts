@@ -170,7 +170,8 @@ describe('ExcelImporterService', () => {
       const buffer = Buffer.from(XLSX.write(workbook, { type: 'array' }));
       const result = await service.importRates(buffer, 'vendor-uuid');
 
-      expect(result.created).toBe(1); // counted as "created" in current impl
+      expect(result.updated).toBe(1);
+      expect(result.created).toBe(0);
       expect(prisma.vendorServiceRate.update).toHaveBeenCalled();
     });
   });

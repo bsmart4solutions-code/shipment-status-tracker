@@ -87,9 +87,6 @@ export class ExcelImporterService {
       return result;
     }
 
-    // Normalize header names to handle variations
-    const headerMap = this.normalizeHeaders(rows[0]);
-
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const lineNum = i + 23; // Account for header row
@@ -128,7 +125,7 @@ export class ExcelImporterService {
         // Determine availability
         let availability = 'AVAILABLE';
         if (rateStr?.toUpperCase() === 'ON REQUEST') availability = 'ON_REQUEST';
-        else if (remarks?.toUpperCase().includes('SUSPEND')) availability = 'SUSPENDED';
+        else if (remarks?.toUpperCase?.().includes('SUSPEND')) availability = 'SUSPENDED';
 
         // Infer country from destination
         const country = this.inferCountryFromDestination(destination);
@@ -151,8 +148,9 @@ export class ExcelImporterService {
           remarks,
         };
 
-        await this.upsertRate(rate);
-        result.created++;
+        const isCreated = await this.upsertRate(rate);
+        if (isCreated) result.created++;
+        else result.updated++;
       } catch (error: any) {
         result.errors.push(`Row ${lineNum}: ${error?.message || String(error)}`);
       }
@@ -228,11 +226,15 @@ export class ExcelImporterService {
           }
         }
 
+        // Infer country from destination/province
+        const country = province ? this.inferCountryFromDestination(province) : undefined;
+
         const rate: ImportRate = {
           vendorId,
           serviceId: seaFreightService.id,
           origin: port.toUpperCase(),
           destination: province?.toUpperCase(),
+          country: country || undefined,
           rateType: 'PER_WM',
           currency: 'USD', // ECU WW export tariff uses USD
           cost,
@@ -246,8 +248,9 @@ export class ExcelImporterService {
           effectiveDate,
         };
 
-        await this.upsertRate(rate);
-        result.created++;
+        const isCreated = await this.upsertRate(rate);
+        if (isCreated) result.created++;
+        else result.updated++;
       } catch (error: any) {
         result.errors.push(`Row ${lineNum}: ${error?.message || String(error)}`);
       }
@@ -258,9 +261,9 @@ export class ExcelImporterService {
 
   /**
    * Upsert rate: update if exists by (vendorId, serviceId, origin, destination),
-   * else create new.
+   * else create new. Returns true if created, false if updated.
    */
-  private async upsertRate(rate: ImportRate): Promise<void> {
+  private async upsertRate(rate: ImportRate): Promise<boolean> {
     const existing = await this.prisma.vendorServiceRate.findFirst({
       where: {
         vendorId: rate.vendorId,
@@ -288,6 +291,7 @@ export class ExcelImporterService {
           updatedAt: new Date(),
         },
       });
+      return false;
     } else {
       await this.prisma.vendorServiceRate.create({
         data: {
@@ -311,6 +315,7 @@ export class ExcelImporterService {
           remarks: rate.remarks,
         },
       });
+      return true;
     }
   }
 
@@ -323,16 +328,6 @@ export class ExcelImporterService {
       }
     }
     return undefined;
-  }
-
-  /** Helper: normalize header names to handle variations in Excel files. */
-  private normalizeHeaders(headerRow: Record<string, any>): Map<string, string> {
-    const map = new Map<string, string>();
-    for (const [key, value] of Object.entries(headerRow)) {
-      const normalized = String(value).toLowerCase().replace(/\s+/g, '_');
-      map.set(normalized, key);
-    }
-    return map;
   }
 
   /** Infer country from destination name (e.g., "HO CHI MINH" -> "VIETNAM"). */
